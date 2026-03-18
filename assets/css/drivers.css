@@ -21,6 +21,7 @@
     --edr-radius:       10px;
     --edr-radius-sm:    6px;
     --edr-transition:   .25s ease;
+    --edr-ticker-speed: 60s;
     background:  var(--edr-bg);
     color:       var(--edr-text);
     font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
@@ -709,7 +710,7 @@
     font-size:    .78rem;
     color:        var(--edr-text-muted);
     padding-left: 16px;
-    animation:    edr-ticker-scroll 30s linear infinite;
+    animation:    edr-ticker-scroll var(--edr-ticker-speed, 60s) linear infinite;
 }
 @keyframes edr-ticker-scroll {
     0%   { transform: translateX(0); }

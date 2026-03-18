@@ -148,10 +148,11 @@ class EDR_Admin_Settings {
         }, $this->page_slug . '-style' );
 
         $style_fields = array(
-            'accent_color'  => array( 'Accent Colour',    'color',  '#f1c40f',  'Card borders, badges, and highlights.' ),
-            'card_bg'       => array( 'Card Background',  'color',  '#161616',  'Background colour for individual driver cards.' ),
-            'border_radius' => array( 'Border Radius (px)', 'number', '10',     'Rounded corners on cards (0 = sharp).' ),
-            'subtitle_text' => array( 'Subtitle Text',    'text',   '',         'Custom text below the heading. Leave blank for the default. Type "none" to hide it entirely.' ),
+            'accent_color'  => array( 'Accent Colour',      'color',  '#f1c40f',  'Card borders, badges, and highlights.' ),
+            'card_bg'       => array( 'Card Background',    'color',  '#161616',  'Background colour for individual driver cards.' ),
+            'border_radius' => array( 'Border Radius (px)', 'number', '10',       'Rounded corners on cards (0 = sharp).' ),
+            'subtitle_text' => array( 'Subtitle Text',      'text',   '',         'Custom text below the heading. Leave blank for the default. Type "none" to hide it entirely.' ),
+            'ticker_speed'  => array( 'Ticker Speed (seconds)', 'ticker_speed', '60', 'How many seconds for one full scroll cycle. Higher = slower. Default 60.' ),
         );
 
         foreach ( $style_fields as $key => $info ) {
@@ -172,6 +173,12 @@ class EDR_Admin_Settings {
                 } elseif ( 'number' === $info[1] ) {
                     printf(
                         '<input type="number" name="%s[%s]" value="%s" min="0" max="30" class="small-text" /> px'
+                        . '<p class="description">%s</p>',
+                        $this->style_key, $key, esc_attr( $val ), esc_html( $info[3] )
+                    );
+                } elseif ( 'ticker_speed' === $info[1] ) {
+                    printf(
+                        '<input type="number" name="%s[%s]" value="%s" min="5" max="300" class="small-text" /> seconds'
                         . '<p class="description">%s</p>',
                         $this->style_key, $key, esc_attr( $val ), esc_html( $info[3] )
                     );
@@ -220,6 +227,7 @@ class EDR_Admin_Settings {
 
         $out['border_radius'] = min( 30, max( 0, absint( isset( $input['border_radius'] ) ? $input['border_radius'] : 10 ) ) );
         $out['subtitle_text'] = sanitize_text_field( isset( $input['subtitle_text'] ) ? $input['subtitle_text'] : '' );
+        $out['ticker_speed']  = min( 300, max( 5, absint( isset( $input['ticker_speed'] ) ? $input['ticker_speed'] : 60 ) ) );
 
         return $out;
     }
@@ -303,6 +311,7 @@ class EDR_Admin_Settings {
                     <tr><td><code>show_spotlight</code></td><td>inherit</td><td>yes, no</td><td>Featured driver spotlight card</td></tr>
                     <tr><td><code>show_ticker</code></td><td>inherit</td><td>yes, no</td><td>Scrolling race results ticker</td></tr>
                     <tr><td><code>show_filter</code></td><td>inherit</td><td>yes, no</td><td>Role filter bar</td></tr>
+                    <tr><td><code>ticker_speed</code></td><td>inherit</td><td>5&ndash;300</td><td>Ticker scroll duration in seconds (higher = slower). Inherits admin setting.</td></tr>
                     <tr><td colspan="4" style="background:#f9f9f9;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Individual stat columns (always explicit)</td></tr>
                     <tr><td><code>show_role</code></td><td>yes</td><td>yes, no</td><td>Team role badge</td></tr>
                     <tr><td><code>show_number</code></td><td>yes</td><td>yes, no</td><td>Driver number</td></tr>

@@ -61,6 +61,7 @@ function edr_maybe_upgrade() {
         'card_bg'                => '#161616',
         'border_radius'          => '10',
         'subtitle_text'          => '',
+        'ticker_speed'           => '60',
         'feature_card_flip'      => '1',
         'feature_counters'       => '1',
         'feature_show_trend'     => '1',

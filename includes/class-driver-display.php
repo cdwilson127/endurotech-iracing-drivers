@@ -64,6 +64,7 @@ class EDR_Driver_Display {
             'show_spotlight' => 'inherit',
             'show_ticker'    => 'inherit',
             'show_filter'    => 'inherit',
+            'ticker_speed'   => 'inherit',
             // Explicit stat column toggles (no admin default, always on/off)
             'show_role'      => 'yes',
             'show_number'    => 'yes',
@@ -96,7 +97,7 @@ class EDR_Driver_Display {
 
         $drivers = $this->sort_drivers( $drivers, $profiles, $o );
 
-        $inline_css = $this->build_inline_css( $style_settings, $o['accent'] );
+        $inline_css = $this->build_inline_css( $style_settings, $o['accent'], $o['ticker_speed'] );
 
         ob_start();
         ?>
@@ -109,6 +110,10 @@ class EDR_Driver_Display {
             <?php endif; ?>
 
             <?php $this->render_header( $o['title'], $drivers, $style_settings ); ?>
+
+            <?php if ( $o['show_ticker'] ) : ?>
+                <?php $this->render_ticker( $drivers, $profiles, $o['ticker_speed'] ); ?>
+            <?php endif; ?>
 
             <?php if ( $o['show_summary'] ) : ?>
                 <?php $this->render_summary( $drivers ); ?>
@@ -126,10 +131,6 @@ class EDR_Driver_Display {
                 <?php $this->render_cards( $drivers, $profiles, $o ); ?>
             <?php else : ?>
                 <?php $this->render_table( $drivers, $profiles, $o ); ?>
-            <?php endif; ?>
-
-            <?php if ( $o['show_ticker'] ) : ?>
-                <?php $this->render_ticker( $drivers, $profiles ); ?>
             <?php endif; ?>
 
             <p class="edr-drivers-footer">Data sourced from the iRacing Data API</p>
@@ -293,6 +294,16 @@ class EDR_Driver_Display {
         $o['sort_by']    = in_array( strtolower( $atts['sort_by'] ), array( 'irating', 'wins', 'starts', 'name', 'custom' ), true ) ? strtolower( $atts['sort_by'] ) : 'irating';
         $o['sort_order'] = ( 'asc' === strtolower( $atts['sort_order'] ) ) ? 'asc' : 'desc';
 
+        // Ticker speed in seconds — shortcode overrides admin setting overrides default (60s)
+        $raw_speed = strtolower( (string) $atts['ticker_speed'] );
+        if ( 'inherit' === $raw_speed ) {
+            $admin_speed = isset( $style_settings['ticker_speed'] ) ? intval( $style_settings['ticker_speed'] ) : 0;
+            $o['ticker_speed'] = $admin_speed > 0 ? $admin_speed : 60;
+        } else {
+            $parsed = intval( $raw_speed );
+            $o['ticker_speed'] = $parsed > 0 ? $parsed : 60;
+        }
+
         // 3D flip is disabled in minimal card style
         if ( 'minimal' === $o['card_style'] ) {
             $o['card_flip'] = false;
@@ -305,7 +316,7 @@ class EDR_Driver_Display {
      * Inline CSS variable builder
      * ------------------------------------------------------------------ */
 
-    private function build_inline_css( $style, $accent_override = 'auto' ) {
+    private function build_inline_css( $style, $accent_override = 'auto', $ticker_speed = 60 ) {
         $presets = array(
             'red'  => array( '#e63946', '230,57,70' ),
             'blue' => array( '#2196f3', '33,150,243' ),
@@ -324,9 +335,10 @@ class EDR_Driver_Display {
         $card_bg = isset( $style['card_bg'] ) ? $style['card_bg'] : '#161616';
         $radius  = isset( $style['border_radius'] ) ? intval( $style['border_radius'] ) : 10;
 
+        $speed = max( 5, intval( $ticker_speed ) );
         return sprintf(
-            '--edr-accent:%s;--edr-accent-dim:rgba(%s,0.18);--edr-accent-hover:rgba(%s,0.08);--edr-bg-card:%s;--edr-radius:%dpx',
-            esc_attr( $accent_hex ), $accent_rgb, $accent_rgb, esc_attr( $card_bg ), $radius
+            '--edr-accent:%s;--edr-accent-dim:rgba(%s,0.18);--edr-accent-hover:rgba(%s,0.08);--edr-bg-card:%s;--edr-radius:%dpx;--edr-ticker-speed:%ds',
+            esc_attr( $accent_hex ), $accent_rgb, $accent_rgb, esc_attr( $card_bg ), $radius, $speed
         );
     }
 
@@ -547,7 +559,7 @@ class EDR_Driver_Display {
      * Race ticker
      * ------------------------------------------------------------------ */
 
-    private function render_ticker( $drivers, $profiles ) {
+    private function render_ticker( $drivers, $profiles, $speed = 60 ) {
         $items = array();
         foreach ( $drivers as $d ) {
             if ( empty( $d['last_race'] ) ) { continue; }
@@ -562,8 +574,9 @@ class EDR_Driver_Display {
 
         // Duplicate for seamless loop
         $content = implode( ' &nbsp;&nbsp;&bull;&nbsp;&nbsp; ', array_merge( $items, $items ) );
+        $speed_s = max( 5, intval( $speed ) ) . 's';
         ?>
-        <div class="edr-ticker-wrap">
+        <div class="edr-ticker-wrap" style="--edr-ticker-speed:<?php echo esc_attr( $speed_s ); ?>">
             <span class="edr-ticker-label">Latest Results</span>
             <div class="edr-ticker-track" aria-hidden="true">
                 <div class="edr-ticker-content"><?php echo $content; ?></div>

@@ -95,6 +95,8 @@ If API credentials are configured, **Sync Team Roster from iRacing API** imports
 
 `show_summary` · `show_last_race` · `show_photo` · `show_gear` · `card_flip` · `counters` · `show_trend` · `show_active` · `show_spotlight` · `show_ticker` · `show_filter`
 
+`ticker_speed` — seconds per full scroll cycle (5–300, higher = slower, default 60). Overrides the admin setting.
+
 **Stat column attributes** (always explicit):
 
 `show_role` · `show_number` · `show_wins` · `show_starts` · `show_top5` · `show_laps`
