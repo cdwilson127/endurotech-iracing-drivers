@@ -1,0 +1,306 @@
+<?php
+/**
+ * iRacing Data API client using OAuth2 password_limited flow.
+ *
+ * Authentication and data-fetching pattern adapted from
+ * https://github.com/dbousamra/iracing-bot (iracing-client.ts).
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
+
+class EDR_IRacing_API {
+
+    private const OAUTH_URL    = 'https://oauth.iracing.com/oauth2/token';
+    private const DATA_API_URL = 'https://members-ng.iracing.com/data';
+
+    private $client_id     = '';
+    private $client_secret = '';
+    private $username      = '';
+    private $password      = '';
+
+    public function __construct() {
+        $settings = get_option( 'edr_iracing_settings', array() );
+
+        $this->client_id     = isset( $settings['client_id'] )     ? $settings['client_id']     : '';
+        $this->client_secret = isset( $settings['client_secret'] ) ? $settings['client_secret'] : '';
+        $this->username      = isset( $settings['username'] )      ? $settings['username']      : '';
+        $this->password      = isset( $settings['password'] )      ? $settings['password']      : '';
+    }
+
+    public function is_configured() {
+        return $this->client_id && $this->client_secret
+            && $this->username && $this->password;
+    }
+
+    private function hash_value( $value, $salt ) {
+        return base64_encode( hash( 'sha256', $value . strtolower( $salt ), true ) );
+    }
+
+    private function get_access_token() {
+        $cached = get_transient( 'edr_iracing_token' );
+        if ( $cached ) {
+            return $cached;
+        }
+
+        $hashed_password = $this->hash_value( $this->password, $this->username );
+        $hashed_secret   = $this->hash_value( $this->client_secret, $this->client_id );
+
+        $response = wp_remote_post( self::OAUTH_URL, array(
+            'timeout' => 30,
+            'headers' => array( 'Content-Type' => 'application/x-www-form-urlencoded' ),
+            'body'    => http_build_query( array(
+                'grant_type'    => 'password_limited',
+                'client_id'     => $this->client_id,
+                'client_secret' => $hashed_secret,
+                'username'      => $this->username,
+                'password'      => $hashed_password,
+                'scope'         => 'iracing.auth',
+            ) ),
+        ) );
+
+        if ( is_wp_error( $response ) ) {
+            error_log( 'EDR iRacing: OAuth error - ' . $response->get_error_message() );
+            return null;
+        }
+
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
+        unset( $response );
+
+        if ( empty( $body['access_token'] ) ) {
+            error_log( 'EDR iRacing: OAuth failed - ' . wp_json_encode( $body ) );
+            return null;
+        }
+
+        $expires = max( ( intval( isset( $body['expires_in'] ) ? $body['expires_in'] : 3600 ) ) - 120, 60 );
+        set_transient( 'edr_iracing_token', $body['access_token'], $expires );
+
+        $token = $body['access_token'];
+        unset( $body );
+
+        return $token;
+    }
+
+    /**
+     * iRacing returns a JSON envelope with a `link` to a pre-signed S3 URL
+     * where the real payload lives. Some endpoints use chunk_info instead.
+     */
+    private function api_request( $endpoint, $query = array() ) {
+        $token = $this->get_access_token();
+        if ( ! $token ) {
+            return null;
+        }
+
+        $url = self::DATA_API_URL . $endpoint;
+        if ( $query ) {
+            $url .= '?' . http_build_query( $query );
+        }
+
+        $response = wp_remote_get( $url, array(
+            'timeout' => 30,
+            'headers' => array( 'Authorization' => 'Bearer ' . $token ),
+        ) );
+
+        if ( is_wp_error( $response ) ) {
+            error_log( 'EDR iRacing: API error - ' . $response->get_error_message() );
+            return null;
+        }
+
+        $raw_body = wp_remote_retrieve_body( $response );
+        unset( $response );
+
+        $body = json_decode( $raw_body, true );
+        unset( $raw_body );
+
+        if ( ! empty( $body['link'] ) ) {
+            $link = $body['link'];
+            unset( $body );
+
+            $data_response = wp_remote_get( $link, array( 'timeout' => 30 ) );
+            if ( is_wp_error( $data_response ) ) {
+                return null;
+            }
+
+            $data_body = wp_remote_retrieve_body( $data_response );
+            unset( $data_response );
+
+            $result = json_decode( $data_body, true );
+            unset( $data_body );
+
+            return $result;
+        }
+
+        if ( ! empty( $body['data']['chunk_info'] ) ) {
+            $base_url    = $body['data']['chunk_info']['base_download_url'];
+            $chunk_names = $body['data']['chunk_info']['chunk_file_names'];
+            unset( $body );
+
+            $all_data = array();
+            foreach ( $chunk_names as $chunk_name ) {
+                $chunk_resp = wp_remote_get( $base_url . $chunk_name, array( 'timeout' => 30 ) );
+                if ( ! is_wp_error( $chunk_resp ) ) {
+                    $chunk_body = wp_remote_retrieve_body( $chunk_resp );
+                    unset( $chunk_resp );
+
+                    $chunk_data = json_decode( $chunk_body, true );
+                    unset( $chunk_body );
+
+                    if ( is_array( $chunk_data ) ) {
+                        $all_data = array_merge( $all_data, $chunk_data );
+                    }
+                    unset( $chunk_data );
+                }
+            }
+            return $all_data;
+        }
+
+        return $body;
+    }
+
+    public function get_team( $team_id ) {
+        return $this->api_request( '/team/get', array( 'team_id' => intval( $team_id ) ) );
+    }
+
+    public function get_member_career_stats( $cust_id ) {
+        return $this->api_request( '/stats/member_career', array( 'cust_id' => intval( $cust_id ) ) );
+    }
+
+    public function get_member_recent_races( $cust_id ) {
+        return $this->api_request( '/stats/member_recent_races', array( 'cust_id' => intval( $cust_id ) ) );
+    }
+
+    /**
+     * Fetch everything needed for the drivers page.
+     * Results are cached as a transient.
+     */
+    public function get_all_driver_data() {
+        $settings = get_option( 'edr_iracing_settings', array() );
+        $team_id  = intval( isset( $settings['team_id'] ) ? $settings['team_id'] : 0 );
+        if ( ! $team_id ) {
+            return null;
+        }
+
+        $cache_hours = max( 1, intval( isset( $settings['cache_hours'] ) ? $settings['cache_hours'] : 1 ) );
+        $cached      = get_transient( 'edr_iracing_drivers_cache' );
+        if ( false !== $cached && is_array( $cached ) && ! empty( $cached ) ) {
+            return $cached;
+        }
+
+        $team = $this->get_team( $team_id );
+        if ( ! $team || empty( $team['roster'] ) ) {
+            return null;
+        }
+
+        $roster = $team['roster'];
+        unset( $team );
+
+        // Large rosters make many sequential HTTP requests — extend execution time.
+        $original_limit = ini_get( 'max_execution_time' );
+        set_time_limit( 300 );
+
+        $drivers = array();
+
+        foreach ( $roster as $member ) {
+            $cust_id = intval( $member['cust_id'] );
+            if ( ! $cust_id ) {
+                continue;
+            }
+            $name = isset( $member['display_name'] ) ? $member['display_name'] : 'Unknown';
+
+            $career     = $this->get_member_career_stats( $cust_id );
+            $road_stats = $this->extract_category_stats( $career, 'road' );
+            unset( $career );
+
+            $recent = $this->get_member_recent_races( $cust_id );
+
+            $last_race      = null;
+            $irating        = null;
+            $safety_rating  = null;
+
+            if ( ! empty( $recent['races'] ) ) {
+                usort( $recent['races'], array( $this, 'sort_races_desc' ) );
+                $lr = $recent['races'][0];
+
+                $irating = isset( $lr['newi_rating'] ) ? $lr['newi_rating'] : null;
+                if ( isset( $lr['new_sub_level'] ) ) {
+                    $safety_rating = number_format( $lr['new_sub_level'] / 100, 2 );
+                }
+
+                // iRacing finish_position and start_position are 0-indexed (0 = 1st place).
+                $finish_raw = isset( $lr['finish_position'] ) ? $lr['finish_position'] : null;
+                $start_raw  = isset( $lr['start_position'] )  ? $lr['start_position']  : null;
+
+                $last_race = array(
+                    'series'    => isset( $lr['series_name'] )        ? $lr['series_name']        : '',
+                    'track'     => isset( $lr['track']['track_name'] ) ? $lr['track']['track_name'] : '',
+                    'finish'    => is_numeric( $finish_raw ) ? intval( $finish_raw ) + 1 : '-',
+                    'start'     => is_numeric( $start_raw )  ? intval( $start_raw )  + 1 : '-',
+                    'incidents' => isset( $lr['incidents'] )           ? $lr['incidents']           : 0,
+                    'sof'       => isset( $lr['strength_of_field'] )   ? $lr['strength_of_field']   : 0,
+                    'date'      => isset( $lr['session_start_time'] )  ? $lr['session_start_time']  : '',
+                );
+                unset( $lr );
+            }
+            unset( $recent );
+
+            $drivers[] = array(
+                'cust_id'       => $cust_id,
+                'name'          => $name,
+                'irating'       => $irating,
+                'safety_rating' => $safety_rating,
+                'wins'          => $road_stats['wins'],
+                'starts'        => $road_stats['starts'],
+                'top5'          => $road_stats['top5'],
+                'laps'          => $road_stats['laps'],
+                'last_race'     => $last_race,
+            );
+        }
+        unset( $roster );
+
+        usort( $drivers, array( $this, 'sort_by_irating_desc' ) );
+
+        set_transient( 'edr_iracing_drivers_cache', $drivers, $cache_hours * HOUR_IN_SECONDS );
+
+        return $drivers;
+    }
+
+    public function sort_races_desc( $a, $b ) {
+        $time_a = isset( $a['session_start_time'] ) ? strtotime( $a['session_start_time'] ) : 0;
+        $time_b = isset( $b['session_start_time'] ) ? strtotime( $b['session_start_time'] ) : 0;
+        return $time_b - $time_a;
+    }
+
+    public function sort_by_irating_desc( $a, $b ) {
+        $a_ir = isset( $a['irating'] ) ? intval( $a['irating'] ) : 0;
+        $b_ir = isset( $b['irating'] ) ? intval( $b['irating'] ) : 0;
+        return $b_ir - $a_ir;
+    }
+
+    /**
+     * Pull wins / starts / top5 / laps for a specific category from career stats.
+     * Category IDs: 1 = Oval, 2 = Road, 3 = Dirt Oval, 4 = Dirt Road, 5 = Sports Car
+     */
+    private function extract_category_stats( $career, $type ) {
+        $defaults = array( 'wins' => 0, 'starts' => 0, 'top5' => 0, 'laps' => 0 );
+
+        if ( empty( $career['stats'] ) ) {
+            return $defaults;
+        }
+
+        $target_ids = ( 'road' === $type ) ? array( 2, 5 ) : array( 1 );
+
+        $combined = $defaults;
+        foreach ( $career['stats'] as $stat ) {
+            $cat_id = intval( isset( $stat['category_id'] ) ? $stat['category_id'] : 0 );
+            if ( in_array( $cat_id, $target_ids, true ) ) {
+                $combined['wins']   += intval( isset( $stat['wins'] )   ? $stat['wins']   : 0 );
+                $combined['starts'] += intval( isset( $stat['starts'] ) ? $stat['starts'] : 0 );
+                $combined['top5']   += intval( isset( $stat['top5'] )   ? $stat['top5']   : 0 );
+                $combined['laps']   += intval( isset( $stat['laps'] )   ? $stat['laps']   : 0 );
+            }
+        }
+
+        return $combined;
+    }
+}
