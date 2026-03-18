@@ -446,7 +446,7 @@ class EDR_Driver_Display {
         ?>
         <div class="edr-drivers-stats-bar">
             <div class="edr-stat-card"><span class="edr-stat-value" data-counter="<?php echo count( $drivers ); ?>"><?php echo number_format( count( $drivers ) ); ?></span><span class="edr-stat-label">Drivers</span></div>
-            <div class="edr-stat-card"><span class="edr-stat-value" data-counter="<?php echo $avg_ir; ?>"><?php echo number_format( $avg_ir ); ?></span><span class="edr-stat-label">Avg iRating</span></div>
+            <div class="edr-stat-card"><span class="edr-stat-value" data-counter="<?php echo $avg_ir; ?>"><?php echo intval( $avg_ir ); ?></span><span class="edr-stat-label">Avg iRating</span></div>
             <div class="edr-stat-card"><span class="edr-stat-value" data-counter="<?php echo $total_wins; ?>"><?php echo number_format( $total_wins ); ?></span><span class="edr-stat-label">Total Wins</span></div>
             <div class="edr-stat-card"><span class="edr-stat-value" data-counter="<?php echo $total_starts; ?>"><?php echo number_format( $total_starts ); ?></span><span class="edr-stat-label">Total Starts</span></div>
             <div class="edr-stat-card"><span class="edr-stat-value" data-counter="<?php echo $total_laps; ?>"><?php echo number_format( $total_laps ); ?></span><span class="edr-stat-label">Total Laps</span></div>
@@ -540,7 +540,7 @@ class EDR_Driver_Display {
                     <div class="edr-spotlight-stats">
                         <?php if ( null !== $driver['irating'] && $driver['irating'] > 0 ) : ?>
                             <div class="edr-spotlight-stat">
-                                <span class="edr-spotlight-stat-val"><?php echo number_format( $driver['irating'] ); ?></span>
+                                <span class="edr-spotlight-stat-val"><?php echo intval( $driver['irating'] ); ?></span>
                                 <span class="edr-spotlight-stat-lbl">iRating</span>
                             </div>
                         <?php endif; ?>
@@ -690,7 +690,7 @@ class EDR_Driver_Display {
                                     <?php if ( null !== $driver['irating'] && $driver['irating'] > 0 ) : ?>
                                         <span class="edr-irating-badge"
                                               data-counter="<?php echo intval( $driver['irating'] ); ?>">
-                                            <?php echo number_format( $driver['irating'] ); ?> iR
+                                            iR <?php echo intval( $driver['irating'] ); ?>
                                         </span>
                                         <?php echo $trend_html; ?>
                                     <?php endif; ?>
@@ -779,7 +779,7 @@ class EDR_Driver_Display {
 
                             <?php if ( null !== $driver['irating'] && $driver['irating'] > 0 ) : ?>
                             <div class="edr-back-stat-row">
-                                <span><?php echo number_format( $driver['irating'] ); ?> iR</span>
+                                <span>iR <?php echo intval( $driver['irating'] ); ?></span>
                                 <?php echo $trend_html; ?>
                                 <?php if ( ! empty( $driver['safety_rating'] ) ) : ?>
                                     <?php $lic_back = isset( $driver['license_class'] ) ? intval( $driver['license_class'] ) : 0; ?>
@@ -892,7 +892,7 @@ class EDR_Driver_Display {
 
                         <td class="edr-col-ir">
                             <?php if ( null !== $driver['irating'] && $driver['irating'] > 0 ) : ?>
-                                <span class="edr-irating-badge"><?php echo number_format( $driver['irating'] ); ?></span>
+                                <span class="edr-irating-badge">iR <?php echo intval( $driver['irating'] ); ?></span>
                             <?php else : ?><span class="edr-na">&mdash;</span><?php endif; ?>
                         </td>
 
