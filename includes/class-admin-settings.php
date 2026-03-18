@@ -30,6 +30,7 @@ class EDR_Admin_Settings {
         add_action( 'admin_post_edr_add_driver',     array( $this, 'handle_add_driver' ) );
         add_action( 'admin_post_edr_delete_driver',  array( $this, 'handle_delete_driver' ) );
         add_action( 'admin_post_edr_sync_api',       array( $this, 'handle_sync_api' ) );
+        add_action( 'wp_ajax_edr_fetch_single_driver', array( $this, 'ajax_fetch_single_driver' ) );
     }
 
     /* ================================================================
@@ -60,6 +61,10 @@ class EDR_Admin_Settings {
                 EDR_IRACING_PLUGIN_URL . 'assets/js/admin-profiles.js',
                 array( 'jquery' ), EDR_IRACING_VERSION, true
             );
+            wp_localize_script( 'edr-admin-profiles', 'edrAdmin', array(
+                'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+                'nonce'   => wp_create_nonce( 'edr_fetch_single_driver' ),
+            ) );
             wp_enqueue_style(
                 'edr-admin-profiles-css',
                 EDR_IRACING_PLUGIN_URL . 'assets/css/admin-profiles.css',
@@ -567,14 +572,22 @@ class EDR_Admin_Settings {
                             </div>
 
                             <!-- Stats -->
-                            <div class="edr-profile-section-heading">
-                                Stats
+                            <div class="edr-profile-section-heading" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                                <span>Stats</span>
+                                <?php if ( $cust_id && $api_configured ) : ?>
+                                    <button type="button" class="button button-small edr-fetch-driver-btn"
+                                            data-cid="<?php echo esc_attr( $cust_id ); ?>"
+                                            data-driver-id="<?php echo esc_attr( $driver_id ); ?>">Fetch Stats from iRacing</button>
+                                <?php endif; ?>
                                 <?php if ( $api_linked ) : ?>
                                     <small style="color:#2ecc71;font-weight:normal">&mdash; live values from API shown in placeholders, manual values override if set</small>
+                                <?php elseif ( $cust_id ) : ?>
+                                    <small style="font-weight:normal">&mdash; click Fetch Stats to pull live data for this driver</small>
                                 <?php else : ?>
                                     <small style="font-weight:normal">&mdash; enter manually, or link an iRacing Customer ID for automatic data</small>
                                 <?php endif; ?>
                             </div>
+                            <div class="edr-fetch-result" id="fetch-result-<?php echo esc_attr( $driver_id ); ?>" style="display:none"></div>
                             <div class="edr-profile-gear-fields">
                                 <?php
                                 $stat_fields = array(
@@ -594,7 +607,8 @@ class EDR_Admin_Settings {
                                     <span><?php echo esc_html( $slabel ); ?></span>
                                     <input type="text" name="profiles[<?php echo esc_attr( $driver_id ); ?>][<?php echo $skey; ?>]"
                                            value="<?php echo esc_attr( $manual_val ); ?>"
-                                           placeholder="<?php echo esc_attr( $ph ); ?>" />
+                                           placeholder="<?php echo esc_attr( $ph ); ?>"
+                                           id="stat-<?php echo esc_attr( $driver_id ); ?>-<?php echo $skey; ?>" />
                                 </label>
                                 <?php endforeach; ?>
                             </div>
@@ -837,6 +851,85 @@ class EDR_Admin_Settings {
         exit;
     }
 
+    /**
+     * AJAX: fetch stats for a single driver and return diagnostic JSON.
+     * Shows raw API data so we can see exactly what iRacing returns.
+     */
+    public function ajax_fetch_single_driver() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized' );
+        }
+        check_ajax_referer( 'edr_fetch_single_driver', 'nonce' );
+
+        $cust_id = intval( isset( $_POST['cust_id'] ) ? $_POST['cust_id'] : 0 );
+        if ( ! $cust_id ) {
+            wp_send_json_error( 'No Customer ID provided.' );
+        }
+
+        $api = new EDR_IRacing_API();
+        if ( ! $api->is_configured() ) {
+            wp_send_json_error( 'API credentials are not configured. Go to Settings first.' );
+        }
+
+        $result = array( 'cust_id' => $cust_id );
+
+        // 1. Member profile (licenses → iRating + SR)
+        $member_data = $api->get_member_info( $cust_id );
+        $result['member_get_raw'] = $member_data;
+
+        $sc_license = null;
+        if ( ! empty( $member_data['members'] ) && is_array( $member_data['members'] ) ) {
+            $m = $member_data['members'][0];
+            if ( ! empty( $m['licenses'] ) && is_array( $m['licenses'] ) ) {
+                $result['all_licenses'] = array();
+                foreach ( $m['licenses'] as $lic ) {
+                    $cat_id   = intval( isset( $lic['category_id'] ) ? $lic['category_id'] : 0 );
+                    $cat_name = isset( $lic['category'] ) ? $lic['category'] : 'unknown';
+                    $ir       = isset( $lic['irating'] ) ? $lic['irating'] : ( isset( $lic['i_rating'] ) ? $lic['i_rating'] : 'n/a' );
+                    $sr       = isset( $lic['safety_rating'] ) ? $lic['safety_rating'] : ( isset( $lic['sub_level'] ) ? $lic['sub_level'] : 'n/a' );
+                    $result['all_licenses'][] = array(
+                        'category_id'   => $cat_id,
+                        'category_name' => $cat_name,
+                        'irating'       => $ir,
+                        'safety_rating' => $sr,
+                    );
+                    if ( 5 === $cat_id ) {
+                        $sc_license = $lic;
+                    }
+                }
+            }
+        }
+
+        if ( $sc_license ) {
+            $ir_val = isset( $sc_license['irating'] ) ? $sc_license['irating'] : ( isset( $sc_license['i_rating'] ) ? $sc_license['i_rating'] : null );
+            $sr_val = isset( $sc_license['safety_rating'] ) ? $sc_license['safety_rating'] : ( isset( $sc_license['sub_level'] ) ? $sc_license['sub_level'] : null );
+            $result['sports_car_irating']       = $ir_val;
+            $result['sports_car_safety_rating'] = $sr_val;
+        } else {
+            $result['sports_car_irating']       = null;
+            $result['sports_car_safety_rating'] = null;
+            $result['warning'] = 'No Sports Car (category_id=5) license found in /member/get response.';
+        }
+
+        // 2. Career stats
+        $career = $api->get_member_career_stats( $cust_id );
+        $result['career_stats_raw'] = $career;
+
+        // 3. Recent races (first 5 only for display)
+        $recent = $api->get_member_recent_races( $cust_id );
+        if ( ! empty( $recent['races'] ) && is_array( $recent['races'] ) ) {
+            $result['recent_races_count'] = count( $recent['races'] );
+            $result['recent_races_first5'] = array_slice( $recent['races'], 0, 5 );
+        } else {
+            $result['recent_races_count']  = 0;
+            $result['recent_races_first5'] = array();
+        }
+
+        unset( $api );
+
+        wp_send_json_success( $result );
+    }
+
     /* ================================================================
        Helpers
        ================================================================ */
@@ -854,6 +947,8 @@ class EDR_Admin_Settings {
             'deleted'       => array( 'success', 'Driver removed.' ),
             'synced'        => array( 'success', 'Sync complete. ' . ( isset( $_GET['count'] ) ? absint( $_GET['count'] ) . ' new driver(s) imported.' : '' ) ),
             'sync_fail'     => array( 'error',   'API sync failed. Check your credentials and team ID.' ),
+            'fetch_ok'      => array( 'success', 'Driver stats fetched from iRacing API.' ),
+            'fetch_fail'    => array( 'error',   'Could not fetch stats for this driver. Check the Customer ID and API credentials.' ),
             'name_required' => array( 'error',   'Driver name is required.' ),
             'duplicate_id'  => array( 'warning', 'A driver with that iRacing Customer ID already exists.' ),
         );
