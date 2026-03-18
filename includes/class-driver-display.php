@@ -177,6 +177,7 @@ class EDR_Driver_Display {
             $irating = ( null !== $raw_ir && $raw_ir >= 0 ) ? $raw_ir : null;
             $irating_prev   = null;
             $safety_rating  = $manual_sr !== '' ? $manual_sr           : '';
+            $license_class  = null;
             $wins           = $manual_w  !== '' ? intval( $manual_w )  : 0;
             $starts         = $manual_s  !== '' ? intval( $manual_s )  : 0;
             $top5           = $manual_t5 !== '' ? intval( $manual_t5 ) : 0;
@@ -193,6 +194,7 @@ class EDR_Driver_Display {
                 }
                 if ( isset( $api['irating_prev'] ) ) { $irating_prev = $api['irating_prev']; }
                 if ( $manual_sr === '' && isset( $api['safety_rating'] ) ) { $safety_rating = $api['safety_rating']; }
+                if ( isset( $api['license_class'] ) ) { $license_class = $api['license_class']; }
                 if ( $manual_w  === '' && isset( $api['wins'] ) )          { $wins          = intval( $api['wins'] ); }
                 if ( $manual_s  === '' && isset( $api['starts'] ) )        { $starts        = intval( $api['starts'] ); }
                 if ( $manual_t5 === '' && isset( $api['top5'] ) )          { $top5          = intval( $api['top5'] ); }
@@ -213,6 +215,7 @@ class EDR_Driver_Display {
                 'irating'        => $irating,
                 'irating_prev'   => $irating_prev,
                 'safety_rating'  => $safety_rating,
+                'license_class'  => $license_class,
                 'wins'           => $wins,
                 'starts'         => $starts,
                 'top5'           => $top5,
@@ -692,7 +695,11 @@ class EDR_Driver_Display {
                                         <?php echo $trend_html; ?>
                                     <?php endif; ?>
                                     <?php if ( ! empty( $driver['safety_rating'] ) ) : ?>
-                                        <span class="edr-sr-badge <?php echo esc_attr( $this->sr_class( floatval( $driver['safety_rating'] ) ) ); ?>">
+                                        <?php $lic = isset( $driver['license_class'] ) ? intval( $driver['license_class'] ) : 0; ?>
+                                        <span class="edr-lic-badge <?php echo esc_attr( $this->license_css_class( $lic ) ); ?>">
+                                            <?php echo esc_html( $this->license_letter( $lic ) ); ?>
+                                        </span>
+                                        <span class="edr-sr-badge <?php echo esc_attr( $this->license_css_class( $lic ) ); ?>">
                                             <?php echo esc_html( $driver['safety_rating'] ); ?> SR
                                         </span>
                                     <?php endif; ?>
@@ -775,7 +782,11 @@ class EDR_Driver_Display {
                                 <span><?php echo number_format( $driver['irating'] ); ?> iR</span>
                                 <?php echo $trend_html; ?>
                                 <?php if ( ! empty( $driver['safety_rating'] ) ) : ?>
-                                    <span class="edr-sr-badge <?php echo esc_attr( $this->sr_class( floatval( $driver['safety_rating'] ) ) ); ?>">
+                                    <?php $lic_back = isset( $driver['license_class'] ) ? intval( $driver['license_class'] ) : 0; ?>
+                                    <span class="edr-lic-badge <?php echo esc_attr( $this->license_css_class( $lic_back ) ); ?>">
+                                        <?php echo esc_html( $this->license_letter( $lic_back ) ); ?>
+                                    </span>
+                                    <span class="edr-sr-badge <?php echo esc_attr( $this->license_css_class( $lic_back ) ); ?>">
                                         <?php echo esc_html( $driver['safety_rating'] ); ?> SR
                                     </span>
                                 <?php endif; ?>
@@ -887,7 +898,11 @@ class EDR_Driver_Display {
 
                         <td class="edr-col-sr">
                             <?php if ( ! empty( $driver['safety_rating'] ) ) : ?>
-                                <span class="edr-sr-badge <?php echo esc_attr( $this->sr_class( floatval( $driver['safety_rating'] ) ) ); ?>">
+                                <?php $lic_tbl = isset( $driver['license_class'] ) ? intval( $driver['license_class'] ) : 0; ?>
+                                <span class="edr-lic-badge <?php echo esc_attr( $this->license_css_class( $lic_tbl ) ); ?>">
+                                    <?php echo esc_html( $this->license_letter( $lic_tbl ) ); ?>
+                                </span>
+                                <span class="edr-sr-badge <?php echo esc_attr( $this->license_css_class( $lic_tbl ) ); ?>">
                                     <?php echo esc_html( $driver['safety_rating'] ); ?>
                                 </span>
                             <?php else : ?><span class="edr-na">&mdash;</span><?php endif; ?>
@@ -982,11 +997,14 @@ class EDR_Driver_Display {
         return $items;
     }
 
-    private function sr_class( $sr ) {
-        if ( $sr >= 4.00 ) { return 'edr-sr-a'; }
-        if ( $sr >= 3.00 ) { return 'edr-sr-b'; }
-        if ( $sr >= 2.00 ) { return 'edr-sr-c'; }
-        return 'edr-sr-d';
+    private function license_css_class( $license_class ) {
+        $map = array( 1 => 'edr-lic-r', 2 => 'edr-lic-d', 3 => 'edr-lic-c', 4 => 'edr-lic-b', 5 => 'edr-lic-a', 6 => 'edr-lic-pro' );
+        return isset( $map[ $license_class ] ) ? $map[ $license_class ] : 'edr-lic-d';
+    }
+
+    private function license_letter( $license_class ) {
+        $map = array( 1 => 'R', 2 => 'D', 3 => 'C', 4 => 'B', 5 => 'A', 6 => 'Pro' );
+        return isset( $map[ $license_class ] ) ? $map[ $license_class ] : '?';
     }
 
     /* ------------------------------------------------------------------
@@ -995,17 +1013,17 @@ class EDR_Driver_Display {
 
     private function get_demo_drivers() {
         return array(
-            array( 'driver_id' => 1001, 'cust_id' => 1001, 'name' => 'Chris Wilson',      'irating' => 4850, 'irating_prev' => 4720, 'safety_rating' => '4.72', 'wins' => 12, 'starts' => 87, 'top5' => 34, 'laps' => 1842, 'last_race_date' => date( 'Y-m-d', strtotime( '-5 days' ) ),
+            array( 'driver_id' => 1001, 'cust_id' => 1001, 'name' => 'Chris Wilson',      'irating' => 4850, 'irating_prev' => 4720, 'safety_rating' => '4.72', 'license_class' => 5, 'wins' => 12, 'starts' => 87, 'top5' => 34, 'laps' => 1842, 'last_race_date' => date( 'Y-m-d', strtotime( '-5 days' ) ),
                 'last_race' => array( 'series' => 'Creventic Endurance Series', 'track' => 'Circuit de Spa-Francorchamps', 'finish' => 1, 'start' => 3, 'incidents' => 2, 'sof' => 4210, 'date' => date( 'Y-m-d', strtotime( '-5 days' ) ) ) ),
-            array( 'driver_id' => 1002, 'cust_id' => 1002, 'name' => 'Erik van der Bijl', 'irating' => 4420, 'irating_prev' => 4480, 'safety_rating' => '4.51', 'wins' => 8,  'starts' => 63, 'top5' => 27, 'laps' => 1390, 'last_race_date' => date( 'Y-m-d', strtotime( '-12 days' ) ),
+            array( 'driver_id' => 1002, 'cust_id' => 1002, 'name' => 'Erik van der Bijl', 'irating' => 4420, 'irating_prev' => 4480, 'safety_rating' => '4.51', 'license_class' => 5, 'wins' => 8,  'starts' => 63, 'top5' => 27, 'laps' => 1390, 'last_race_date' => date( 'Y-m-d', strtotime( '-12 days' ) ),
                 'last_race' => array( 'series' => 'Global Endurance Tour', 'track' => 'Watkins Glen International', 'finish' => 2, 'start' => 1, 'incidents' => 0, 'sof' => 3980, 'date' => date( 'Y-m-d', strtotime( '-12 days' ) ) ) ),
-            array( 'driver_id' => 1003, 'cust_id' => 1003, 'name' => 'Aden Hartley',      'irating' => 3910, 'irating_prev' => 3910, 'safety_rating' => '3.88', 'wins' => 4,  'starts' => 51, 'top5' => 19, 'laps' => 1105, 'last_race_date' => date( 'Y-m-d', strtotime( '-45 days' ) ),
+            array( 'driver_id' => 1003, 'cust_id' => 1003, 'name' => 'Aden Hartley',      'irating' => 3910, 'irating_prev' => 3910, 'safety_rating' => '3.88', 'license_class' => 4, 'wins' => 4,  'starts' => 51, 'top5' => 19, 'laps' => 1105, 'last_race_date' => date( 'Y-m-d', strtotime( '-45 days' ) ),
                 'last_race' => array( 'series' => 'Creventic Endurance Series', 'track' => 'Mount Panorama Circuit', 'finish' => 4, 'start' => 6, 'incidents' => 4, 'sof' => 3750, 'date' => '' ) ),
-            array( 'driver_id' => 1004, 'cust_id' => 1004, 'name' => 'Luke Brennan',      'irating' => 3640, 'irating_prev' => 3580, 'safety_rating' => '3.44', 'wins' => 2,  'starts' => 44, 'top5' => 14, 'laps' => 940, 'last_race_date' => date( 'Y-m-d', strtotime( '-8 days' ) ),
+            array( 'driver_id' => 1004, 'cust_id' => 1004, 'name' => 'Luke Brennan',      'irating' => 3640, 'irating_prev' => 3580, 'safety_rating' => '3.44', 'license_class' => 3, 'wins' => 2,  'starts' => 44, 'top5' => 14, 'laps' => 940, 'last_race_date' => date( 'Y-m-d', strtotime( '-8 days' ) ),
                 'last_race' => array( 'series' => 'Global Endurance Tour', 'track' => 'Nurburgring Nordschleife', 'finish' => 7, 'start' => 5, 'incidents' => 6, 'sof' => 3420, 'date' => date( 'Y-m-d', strtotime( '-8 days' ) ) ) ),
-            array( 'driver_id' => 1005, 'cust_id' => 1005, 'name' => 'Sarah Kowalski',    'irating' => 3280, 'irating_prev' => null, 'safety_rating' => '4.10', 'wins' => 1,  'starts' => 29, 'top5' => 9,  'laps' => 620, 'last_race_date' => date( 'Y-m-d', strtotime( '-20 days' ) ),
+            array( 'driver_id' => 1005, 'cust_id' => 1005, 'name' => 'Sarah Kowalski',    'irating' => 3280, 'irating_prev' => null, 'safety_rating' => '4.10', 'license_class' => 5, 'wins' => 1,  'starts' => 29, 'top5' => 9,  'laps' => 620, 'last_race_date' => date( 'Y-m-d', strtotime( '-20 days' ) ),
                 'last_race' => array( 'series' => 'iRacing Endurance Series', 'track' => 'Suzuka International Racing Course', 'finish' => 3, 'start' => 4, 'incidents' => 1, 'sof' => 2990, 'date' => '' ) ),
-            array( 'driver_id' => 1006, 'cust_id' => 1006, 'name' => 'Marco Deluca',      'irating' => null, 'irating_prev' => null, 'safety_rating' => '2.85', 'wins' => 0,  'starts' => 18, 'top5' => 5,  'laps' => 388, 'last_race_date' => '',
+            array( 'driver_id' => 1006, 'cust_id' => 1006, 'name' => 'Marco Deluca',      'irating' => null, 'irating_prev' => null, 'safety_rating' => '2.85', 'license_class' => 2, 'wins' => 0,  'starts' => 18, 'top5' => 5,  'laps' => 388, 'last_race_date' => '',
                 'last_race' => null ),
         );
     }

@@ -2,7 +2,7 @@
 
 WordPress plugin that displays iRacing driver statistics for the Endurotech Racing team.
 
-**Version:** 1.8.0  
+**Version:** 1.9.0  
 **Requires:** PHP 7.4+, WordPress 5.8+
 
 ---

@@ -26,10 +26,6 @@ class EDR_Admin_Settings {
         add_action( 'admin_init',            array( $this, 'register_settings' ) );
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_scripts' ) );
 
-        add_action( 'admin_post_edr_save_profiles',  array( $this, 'handle_save_profiles' ) );
-        add_action( 'admin_post_edr_add_driver',     array( $this, 'handle_add_driver' ) );
-        add_action( 'admin_post_edr_delete_driver',  array( $this, 'handle_delete_driver' ) );
-        add_action( 'admin_post_edr_sync_api',       array( $this, 'handle_sync_api' ) );
         add_action( 'wp_ajax_edr_fetch_single_driver', array( $this, 'ajax_fetch_single_driver' ) );
     }
 
@@ -354,6 +350,8 @@ class EDR_Admin_Settings {
     public function render_profiles_page() {
         if ( ! current_user_can( 'manage_options' ) ) { return; }
 
+        $this->process_profiles_actions();
+
         $profiles = get_option( $this->profiles_key, array() );
         if ( ! is_array( $profiles ) ) { $profiles = array(); }
 
@@ -395,8 +393,8 @@ class EDR_Admin_Settings {
             <!-- Add new driver -->
             <div class="edr-add-driver-box">
                 <h3>Add New Driver</h3>
-                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="edr-add-driver-form">
-                    <input type="hidden" name="action" value="edr_add_driver" />
+                <form method="post" action="" class="edr-add-driver-form">
+                    <input type="hidden" name="edr_action" value="add_driver" />
                     <?php wp_nonce_field( 'edr_add_driver', 'edr_add_nonce' ); ?>
                     <label>
                         <span>Driver Name <strong style="color:#f1c40f">*</strong></span>
@@ -425,8 +423,8 @@ class EDR_Admin_Settings {
             <!-- Sync from API -->
             <?php if ( $api_configured ) : ?>
             <div class="edr-sync-box">
-                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
-                    <input type="hidden" name="action" value="edr_sync_api" />
+                <form method="post" action="" style="display:inline">
+                    <input type="hidden" name="edr_action" value="sync_api" />
                     <?php wp_nonce_field( 'edr_sync_api', 'edr_sync_nonce' ); ?>
                     <input type="submit" class="button button-secondary" value="Sync Team Roster from iRacing API"
                            onclick="return confirm('This will fetch your team roster and add any new drivers. Existing drivers will not be changed. Continue?');" />
@@ -439,8 +437,8 @@ class EDR_Admin_Settings {
             <?php if ( empty( $profiles ) ) : ?>
                 <div class="notice notice-info" style="margin-top:20px"><p>No drivers yet. Use the form above to add your first driver, or sync from the iRacing API.</p></div>
             <?php else : ?>
-                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-                    <input type="hidden" name="action" value="edr_save_profiles" />
+                <form method="post" action="">
+                    <input type="hidden" name="edr_action" value="save_profiles" />
                     <?php wp_nonce_field( 'edr_save_profiles', 'edr_profiles_nonce' ); ?>
 
                     <div class="edr-profiles-grid" id="edr-sortable-grid">
@@ -630,7 +628,7 @@ class EDR_Admin_Settings {
                             <!-- Delete -->
                             <div class="edr-profile-card-footer">
                                 <a href="<?php echo esc_url( wp_nonce_url(
-                                    admin_url( 'admin-post.php?action=edr_delete_driver&driver_id=' . urlencode( $driver_id ) ),
+                                    admin_url( 'admin.php?page=' . $this->profiles_slug . '&edr_action=delete_driver&driver_id=' . urlencode( $driver_id ) ),
                                     'edr_delete_driver_' . $driver_id, 'edr_del_nonce'
                                 ) ); ?>" class="edr-delete-link"
                                    onclick="return confirm('Remove <?php echo esc_js( $name ); ?> from the roster?');">
@@ -652,11 +650,41 @@ class EDR_Admin_Settings {
     }
 
     /* ================================================================
+       Form action router — replaces admin-post.php
+       ================================================================ */
+
+    private function process_profiles_actions() {
+        $action = '';
+        if ( isset( $_POST['edr_action'] ) ) {
+            $action = sanitize_text_field( $_POST['edr_action'] );
+        } elseif ( isset( $_GET['edr_action'] ) ) {
+            $action = sanitize_text_field( $_GET['edr_action'] );
+        }
+        if ( ! $action ) {
+            return;
+        }
+
+        switch ( $action ) {
+            case 'add_driver':
+                $this->handle_add_driver();
+                break;
+            case 'save_profiles':
+                $this->handle_save_profiles();
+                break;
+            case 'sync_api':
+                $this->handle_sync_api();
+                break;
+            case 'delete_driver':
+                $this->handle_delete_driver();
+                break;
+        }
+    }
+
+    /* ================================================================
        POST handlers
        ================================================================ */
 
     public function handle_add_driver() {
-        if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Unauthorized' ); }
         if ( ! wp_verify_nonce( isset( $_POST['edr_add_nonce'] ) ? $_POST['edr_add_nonce'] : '', 'edr_add_driver' ) ) {
             wp_die( 'Invalid nonce' );
         }
@@ -717,7 +745,6 @@ class EDR_Admin_Settings {
     }
 
     public function handle_delete_driver() {
-        if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Unauthorized' ); }
 
         $driver_id = isset( $_GET['driver_id'] ) ? sanitize_text_field( $_GET['driver_id'] ) : '';
         if ( ! wp_verify_nonce( isset( $_GET['edr_del_nonce'] ) ? $_GET['edr_del_nonce'] : '', 'edr_delete_driver_' . $driver_id ) ) {
@@ -738,7 +765,6 @@ class EDR_Admin_Settings {
     }
 
     public function handle_save_profiles() {
-        if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Unauthorized' ); }
         if ( ! wp_verify_nonce( isset( $_POST['edr_profiles_nonce'] ) ? $_POST['edr_profiles_nonce'] : '', 'edr_save_profiles' ) ) {
             wp_die( 'Invalid nonce' );
         }
@@ -785,7 +811,6 @@ class EDR_Admin_Settings {
     }
 
     public function handle_sync_api() {
-        if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Unauthorized' ); }
         if ( ! wp_verify_nonce( isset( $_POST['edr_sync_nonce'] ) ? $_POST['edr_sync_nonce'] : '', 'edr_sync_api' ) ) {
             wp_die( 'Invalid nonce' );
         }
@@ -908,7 +933,13 @@ class EDR_Admin_Settings {
 
             if ( is_array( $sr_data ) && ! empty( $sr_data ) ) {
                 $sr_last = end( $sr_data );
-                $result['sports_car_sr'] = isset( $sr_last['value'] ) ? $sr_last['value'] : null;
+                $raw_sr  = isset( $sr_last['value'] ) ? intval( $sr_last['value'] ) : 0;
+                $lic_map = array( 1 => 'R', 2 => 'D', 3 => 'C', 4 => 'B', 5 => 'A', 6 => 'Pro' );
+                $lic_num = intval( floor( $raw_sr / 1000 ) );
+                $sub     = $raw_sr % 1000;
+                $result['sports_car_sr_raw']   = $raw_sr;
+                $result['sports_car_license']  = isset( $lic_map[ $lic_num ] ) ? $lic_map[ $lic_num ] : '?';
+                $result['sports_car_sr']       = number_format( $sub / 100, 2 );
             } else {
                 $result['sports_car_sr'] = null;
                 $result['sr_chart_full'] = $sr_chart;

@@ -527,10 +527,22 @@
     border-radius:  0;
     letter-spacing: .03em;
 }
-.edr-sr-a { background: rgba(46,204,113,.12); color: #2ecc71; border: 1px solid rgba(46,204,113,.35); }
-.edr-sr-b { background: rgba(52,152,219,.12); color: #3498db; border: 1px solid rgba(52,152,219,.35); }
-.edr-sr-c { background: rgba(240,240,0,.12);  color: #f0f000; border: 1px solid rgba(240,240,0,.35);  }
-.edr-sr-d { background: rgba(230,57,70,.12);  color: #e63946; border: 1px solid rgba(230,57,70,.35);  }
+.edr-lic-badge {
+    font-size:      .68rem;
+    font-weight:    800;
+    padding:        2px 6px;
+    border-radius:  0;
+    letter-spacing: .02em;
+    margin-right:   2px;
+    text-transform: uppercase;
+}
+/* iRacing license class colours */
+.edr-lic-r  { background: rgba(183,28,28,.18);  color: #ef5350; border: 1px solid rgba(183,28,28,.45);  }
+.edr-lic-d  { background: rgba(255,109,0,.15);  color: #ff9100; border: 1px solid rgba(255,109,0,.40);  }
+.edr-lic-c  { background: rgba(255,214,0,.14);  color: #ffd600; border: 1px solid rgba(255,214,0,.38);  }
+.edr-lic-b  { background: rgba(0,200,83,.14);   color: #00e676; border: 1px solid rgba(0,200,83,.40);   }
+.edr-lic-a  { background: rgba(41,98,255,.14);  color: #448aff; border: 1px solid rgba(41,98,255,.40);  }
+.edr-lic-pro { background: rgba(200,200,200,.1); color: #e0e0e0; border: 1px solid rgba(200,200,200,.3); }
 
 /* iRating trend badge */
 .edr-trend {

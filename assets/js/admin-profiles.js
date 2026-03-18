@@ -126,7 +126,9 @@
 
             html += '<br><br><strong style="font-size:14px">Sports Car Safety Rating (/member/chart_data cat=5 type=3):</strong><br>';
             if (d.sports_car_sr !== null && d.sports_car_sr !== undefined) {
-                html += ok + d.sports_car_sr + '</span>';
+                var licLabel = d.sports_car_license || '?';
+                html += ok + 'License ' + licLabel + ' &mdash; ' + d.sports_car_sr + ' SR</span>';
+                if (d.sports_car_sr_raw) html += ' (raw: ' + d.sports_car_sr_raw + ')';
             } else {
                 html += bad + 'NOT FOUND</span>';
                 if (d.sr_chart_full) html += '<br>Full response: ' + JSON.stringify(d.sr_chart_full);

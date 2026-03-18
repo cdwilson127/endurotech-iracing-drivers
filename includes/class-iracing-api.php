@@ -262,14 +262,19 @@ class EDR_IRacing_API {
 
             // ── 3. Sports Car Safety Rating via /member/chart_data ──
             $safety_rating = null;
+            $license_class = null;
             $sr_chart = $this->get_member_chart_data( $cust_id, 5, 3 );
             $sr_points = $this->extract_chart_points( $sr_chart );
             unset( $sr_chart );
 
             if ( ! empty( $sr_points ) ) {
-                $last_sr = end( $sr_points );
-                $sr_val  = isset( $last_sr['value'] ) ? floatval( $last_sr['value'] ) : 0;
-                $safety_rating = ( $sr_val > 0 ) ? number_format( $sr_val, 2 ) : null;
+                $last_sr  = end( $sr_points );
+                $raw_sr   = isset( $last_sr['value'] ) ? intval( $last_sr['value'] ) : 0;
+                if ( $raw_sr > 0 ) {
+                    $license_class = intval( floor( $raw_sr / 1000 ) );
+                    $sub_level     = $raw_sr % 1000;
+                    $safety_rating = number_format( $sub_level / 100, 2 );
+                }
             }
 
             // ── 4. Recent races → last race display ──
@@ -285,8 +290,8 @@ class EDR_IRacing_API {
                 $last_race  = array(
                     'series'    => isset( $any_race['series_name'] )         ? $any_race['series_name']         : '',
                     'track'     => isset( $any_race['track']['track_name'] ) ? $any_race['track']['track_name'] : '',
-                    'finish'    => is_numeric( $finish_raw ) ? intval( $finish_raw ) + 1 : '-',
-                    'start'     => is_numeric( $start_raw )  ? intval( $start_raw )  + 1 : '-',
+                    'finish'    => is_numeric( $finish_raw ) ? intval( $finish_raw ) : '-',
+                    'start'     => is_numeric( $start_raw )  ? intval( $start_raw )  : '-',
                     'incidents' => isset( $any_race['incidents'] )           ? $any_race['incidents']           : 0,
                     'sof'       => isset( $any_race['strength_of_field'] )   ? $any_race['strength_of_field']   : 0,
                     'date'      => isset( $any_race['session_start_time'] )  ? $any_race['session_start_time']  : '',
@@ -305,6 +310,7 @@ class EDR_IRacing_API {
                 'irating'        => $irating,
                 'irating_prev'   => $irating_prev,
                 'safety_rating'  => $safety_rating,
+                'license_class'  => $license_class,
                 'wins'           => $road_stats['wins'],
                 'starts'         => $road_stats['starts'],
                 'top5'           => $road_stats['top5'],
