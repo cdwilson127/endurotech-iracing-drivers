@@ -564,7 +564,7 @@
 .edr-lic-a   { background: #2980b9; color: #fff; }
 .edr-lic-pro { background: #7f8c8d; color: #fff; }
 
-/* Legacy (table view still uses standalone badge) */
+/* Standalone SR badge (fallback / future use) */
 .edr-sr-badge {
     font-size:      .72rem;
     font-weight:    700;

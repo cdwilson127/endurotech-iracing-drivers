@@ -657,6 +657,10 @@ class EDR_Admin_Settings {
        ================================================================ */
 
     private function process_profiles_actions() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+
         $action = '';
         if ( isset( $_POST['edr_action'] ) ) {
             $action = sanitize_text_field( $_POST['edr_action'] );
