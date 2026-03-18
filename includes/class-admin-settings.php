@@ -284,6 +284,18 @@ class EDR_Admin_Settings {
 
             <hr />
 
+            <!-- ── Plugin Update Checker ── -->
+            <h2>Plugin Update Checker</h2>
+            <p>Tests the connection to GitHub and shows exactly what the update checker sees.</p>
+            <form method="post">
+                <?php wp_nonce_field( 'edr_test_updater', 'edr_updater_nonce' ); ?>
+                <input type="hidden" name="edr_test_updater" value="1" />
+                <?php submit_button( 'Test Update Checker', 'secondary' ); ?>
+            </form>
+            <?php $this->handle_updater_test(); ?>
+
+            <hr />
+
             <!-- ── Shortcode Reference ── -->
             <h2>Shortcode Reference</h2>
             <p>Place on any page or post:</p>
@@ -867,6 +879,64 @@ class EDR_Admin_Settings {
         if ( ! wp_verify_nonce( isset( $_POST['edr_cache_nonce'] ) ? $_POST['edr_cache_nonce'] : '', 'edr_clear_cache' ) ) { return; }
         delete_transient( 'edr_iracing_drivers_cache' );
         echo '<div class="notice notice-success"><p>Driver cache cleared.</p></div>';
+    }
+
+    private function handle_updater_test() {
+        if ( empty( $_POST['edr_test_updater'] ) ) { return; }
+        if ( ! wp_verify_nonce( isset( $_POST['edr_updater_nonce'] ) ? $_POST['edr_updater_nonce'] : '', 'edr_test_updater' ) ) { return; }
+
+        // Clear the cached release so we get a fresh result.
+        delete_transient( 'edr_github_release_data' );
+
+        $repo = 'cdwilson127/endurotech-iracing-drivers';
+        $url  = 'https://api.github.com/repos/' . $repo . '/releases/latest';
+
+        $response = wp_remote_get( $url, array(
+            'timeout' => 15,
+            'headers' => array(
+                'User-Agent' => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . get_bloginfo( 'url' ),
+                'Accept'     => 'application/vnd.github.v3+json',
+            ),
+        ) );
+
+        echo '<div style="background:#fff;border:1px solid #ccd0d4;padding:16px 20px;margin-top:12px;max-width:700px;border-radius:4px;font-family:monospace;font-size:13px">';
+        echo '<strong>Update Checker Diagnostic</strong><br><br>';
+        echo 'GitHub API URL: <a href="' . esc_url( $url ) . '" target="_blank">' . esc_html( $url ) . '</a><br>';
+        echo 'Current plugin version: <strong>' . EDR_IRACING_VERSION . '</strong><br><br>';
+
+        if ( is_wp_error( $response ) ) {
+            echo '<span style="color:#b32d2e">&#10007; HTTP Error: ' . esc_html( $response->get_error_message() ) . '</span>';
+        } else {
+            $code = wp_remote_retrieve_response_code( $response );
+            $body = json_decode( wp_remote_retrieve_body( $response ), true );
+
+            echo 'HTTP Status: <strong>' . intval( $code ) . '</strong><br>';
+
+            if ( 200 === intval( $code ) && ! empty( $body['tag_name'] ) ) {
+                $version = ltrim( $body['tag_name'], 'v' );
+                $newer   = version_compare( $version, EDR_IRACING_VERSION, '>' );
+                echo 'Latest release tag: <strong>' . esc_html( $body['tag_name'] ) . '</strong> (version ' . esc_html( $version ) . ')<br>';
+                echo 'Published: ' . esc_html( isset( $body['published_at'] ) ? $body['published_at'] : 'unknown' ) . '<br>';
+                echo 'Package URL: ' . esc_html( isset( $body['zipball_url'] ) ? $body['zipball_url'] : 'none' ) . '<br><br>';
+                if ( $newer ) {
+                    echo '<span style="color:#0a7227">&#10003; Update available: ' . esc_html( $version ) . ' &gt; ' . EDR_IRACING_VERSION . '</span><br>';
+                    echo '<span style="color:#0a7227">&#10003; WordPress should show the update button. If it does not, go to <strong>Dashboard &rarr; Updates &rarr; Check Again</strong>.</span>';
+                } else {
+                    echo '<span style="color:#888">&#8212; Plugin is already up to date (GitHub: ' . esc_html( $version ) . ', Installed: ' . EDR_IRACING_VERSION . ').</span>';
+                }
+            } elseif ( 404 === intval( $code ) ) {
+                echo '<span style="color:#b32d2e">&#10007; 404 — Repository not found or no releases published yet.<br>';
+                echo 'Check: (1) Is the repo public? (2) Has a release been published (not just a push)?</span>';
+            } elseif ( 403 === intval( $code ) ) {
+                echo '<span style="color:#b32d2e">&#10007; 403 — GitHub API rate limit hit or repo is private.<br>';
+                echo 'Anonymous API requests are limited to 60/hour. Try again in a few minutes.</span>';
+            } else {
+                echo '<span style="color:#b32d2e">&#10007; Unexpected response (' . intval( $code ) . ').</span><br>';
+                echo '<pre style="font-size:11px;overflow:auto;max-height:200px">' . esc_html( wp_remote_retrieve_body( $response ) ) . '</pre>';
+            }
+        }
+
+        echo '</div>';
     }
 
     private function get_flag_options() {
