@@ -873,42 +873,81 @@ class EDR_Admin_Settings {
 
         $result = array( 'cust_id' => $cust_id );
 
-        // 1. /member/get — dump all top-level keys so we can see what's available
-        $member_data = $api->get_member_info( $cust_id );
-        if ( is_array( $member_data ) ) {
-            $result['member_get_keys'] = array_keys( $member_data );
-            if ( ! empty( $member_data['members'] ) && is_array( $member_data['members'] ) ) {
-                $m = $member_data['members'][0];
-                $result['member_keys'] = array_keys( $m );
-                if ( ! empty( $m['licenses'] ) && is_array( $m['licenses'] ) ) {
-                    $result['license_sample'] = $m['licenses'][0];
-                }
+        // 1. Sports Car iRating via /member/chart_data (category 5, chart_type 1)
+        $ir_chart = $api->get_member_chart_data( $cust_id, 5, 1 );
+        $result['ir_chart_raw_keys'] = is_array( $ir_chart ) ? array_keys( $ir_chart ) : 'null';
+        if ( is_array( $ir_chart ) ) {
+            $ir_data = null;
+            if ( isset( $ir_chart['data'] ) )       { $ir_data = $ir_chart['data']; }
+            elseif ( isset( $ir_chart['chart_data'] ) ) { $ir_data = $ir_chart['chart_data']; }
+            else { $ir_data = $ir_chart; }
+
+            if ( is_array( $ir_data ) && ! empty( $ir_data ) ) {
+                $result['ir_data_count'] = count( $ir_data );
+                $result['ir_data_last']  = end( $ir_data );
+                $last_val = isset( $result['ir_data_last']['value'] ) ? $result['ir_data_last']['value'] : null;
+                $result['sports_car_irating'] = $last_val;
+                $result['ir_data_first'] = reset( $ir_data );
+            } else {
+                $result['ir_data_count'] = 0;
+                $result['sports_car_irating'] = null;
+                $result['ir_chart_full'] = $ir_chart;
             }
         } else {
-            $result['member_get_keys'] = 'null or not array';
+            $result['sports_car_irating'] = null;
         }
-        unset( $member_data );
+        unset( $ir_chart );
 
-        // 2. Career stats — dump keys
+        // 2. Sports Car Safety Rating via /member/chart_data (category 5, chart_type 3)
+        $sr_chart = $api->get_member_chart_data( $cust_id, 5, 3 );
+        if ( is_array( $sr_chart ) ) {
+            $sr_data = null;
+            if ( isset( $sr_chart['data'] ) )       { $sr_data = $sr_chart['data']; }
+            elseif ( isset( $sr_chart['chart_data'] ) ) { $sr_data = $sr_chart['chart_data']; }
+            else { $sr_data = $sr_chart; }
+
+            if ( is_array( $sr_data ) && ! empty( $sr_data ) ) {
+                $sr_last = end( $sr_data );
+                $result['sports_car_sr'] = isset( $sr_last['value'] ) ? $sr_last['value'] : null;
+            } else {
+                $result['sports_car_sr'] = null;
+                $result['sr_chart_full'] = $sr_chart;
+            }
+        } else {
+            $result['sports_car_sr'] = null;
+        }
+        unset( $sr_chart );
+
+        // 3. Career stats (quick check)
         $career = $api->get_member_career_stats( $cust_id );
         if ( ! empty( $career['stats'] ) && is_array( $career['stats'] ) ) {
-            $result['career_stats_count'] = count( $career['stats'] );
-            $result['career_first_entry'] = $career['stats'][0];
+            $result['career_categories'] = array();
+            foreach ( $career['stats'] as $s ) {
+                $result['career_categories'][] = array(
+                    'category_id' => isset( $s['category_id'] ) ? $s['category_id'] : '?',
+                    'category'    => isset( $s['category'] )    ? $s['category']    : '?',
+                    'starts'      => isset( $s['starts'] )      ? $s['starts']      : 0,
+                    'wins'        => isset( $s['wins'] )        ? $s['wins']        : 0,
+                );
+            }
         }
         unset( $career );
 
-        // 3. Recent races — dump ALL keys from the first race so we find the category field
+        // 4. Recent races (first 3 for context)
         $recent = $api->get_member_recent_races( $cust_id );
         if ( ! empty( $recent['races'] ) && is_array( $recent['races'] ) ) {
             $result['recent_races_count'] = count( $recent['races'] );
-            $first = $recent['races'][0];
-            $result['race_all_keys'] = array_keys( $first );
-            $result['race_first_raw'] = $first;
-            $result['recent_races_first3'] = array_slice( $recent['races'], 0, 3 );
+            $result['recent_first3'] = array();
+            foreach ( array_slice( $recent['races'], 0, 3 ) as $r ) {
+                $result['recent_first3'][] = array(
+                    'series'      => isset( $r['series_name'] )         ? $r['series_name']         : '?',
+                    'track'       => isset( $r['track']['track_name'] ) ? $r['track']['track_name'] : '?',
+                    'newi_rating' => isset( $r['newi_rating'] )         ? $r['newi_rating']         : '?',
+                    'new_sub'     => isset( $r['new_sub_level'] )       ? $r['new_sub_level']       : '?',
+                );
+            }
         } else {
             $result['recent_races_count'] = 0;
-            $result['race_all_keys']      = array();
-            $result['recent_top_keys']    = is_array( $recent ) ? array_keys( $recent ) : 'null';
         }
         unset( $recent );
 

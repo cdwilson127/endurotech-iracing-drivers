@@ -174,9 +174,20 @@ class EDR_IRacing_API {
     }
 
     /**
-     * Batch-fetch member profiles. Returns license data (current iRating, SR)
-     * for every category without depending on recent race results.
-     * Accepts a single cust_id or an array of cust_ids.
+     * Fetch iRating or Safety Rating history for a specific category.
+     * chart_type: 1 = iRating, 2 = TT Rating, 3 = Safety Rating.
+     * category_id: 1 = Oval, 2 = Road, 3 = Dirt Oval, 4 = Dirt Road, 5 = Sports Car.
+     */
+    public function get_member_chart_data( $cust_id, $category_id, $chart_type ) {
+        return $this->api_request( '/member/chart_data', array(
+            'cust_id'     => intval( $cust_id ),
+            'category_id' => intval( $category_id ),
+            'chart_type'  => intval( $chart_type ),
+        ) );
+    }
+
+    /**
+     * Kept for the diagnostic tool on the admin page.
      */
     public function get_member_info( $cust_ids ) {
         if ( is_array( $cust_ids ) ) {
@@ -189,10 +200,9 @@ class EDR_IRacing_API {
      * Fetch everything needed for the drivers page.
      * Results are cached as a transient.
      *
-     * iRating and Safety Rating are sourced from the member profile licenses
-     * (Sports Car category_id = 5) which always reflects the current value.
-     * Recent races are only used for the "last race" display strip and
-     * the iRating trend badge (oldi_rating from most recent SC race).
+     * iRating + Safety Rating come from /member/chart_data (Sports Car, cat 5).
+     * Career stats come from /stats/member_career (cat 2 + 5 combined).
+     * Recent races (any category) provide the "last race" display strip.
      */
     public function get_all_driver_data() {
         $settings = get_option( 'edr_iracing_settings', array() );
@@ -217,27 +227,6 @@ class EDR_IRacing_API {
 
         set_time_limit( 300 );
 
-        // ── Batch-fetch member profiles for authoritative iRating + SR ──
-        $all_cust_ids = array();
-        foreach ( $roster as $member ) {
-            $cid = intval( isset( $member['cust_id'] ) ? $member['cust_id'] : 0 );
-            if ( $cid ) { $all_cust_ids[] = $cid; }
-        }
-
-        $license_lookup = array();
-        if ( ! empty( $all_cust_ids ) ) {
-            $member_data = $this->get_member_info( $all_cust_ids );
-            if ( ! empty( $member_data['members'] ) && is_array( $member_data['members'] ) ) {
-                foreach ( $member_data['members'] as $mi ) {
-                    $mid = intval( isset( $mi['cust_id'] ) ? $mi['cust_id'] : 0 );
-                    if ( $mid && ! empty( $mi['licenses'] ) && is_array( $mi['licenses'] ) ) {
-                        $license_lookup[ $mid ] = $mi['licenses'];
-                    }
-                }
-            }
-            unset( $member_data );
-        }
-
         $drivers = array();
 
         foreach ( $roster as $member ) {
@@ -247,50 +236,45 @@ class EDR_IRacing_API {
             }
             $name = isset( $member['display_name'] ) ? $member['display_name'] : 'Unknown';
 
+            // ── 1. Career stats (Road + Sports Car combined) ──
             $career     = $this->get_member_career_stats( $cust_id );
             $road_stats = $this->extract_category_stats( $career, 'road' );
             unset( $career );
 
-            $irating        = null;
-            $irating_prev   = null;
-            $safety_rating  = null;
-            $last_race      = null;
+            // ── 2. Sports Car iRating via /member/chart_data ──
+            $irating      = null;
+            $irating_prev = null;
+            $ir_chart = $this->get_member_chart_data( $cust_id, 5, 1 );
+            $ir_points = $this->extract_chart_points( $ir_chart );
+            unset( $ir_chart );
 
-            // ── 1. Current iRating + SR from member profile (Sports Car) ──
-            if ( isset( $license_lookup[ $cust_id ] ) ) {
-                foreach ( $license_lookup[ $cust_id ] as $lic ) {
-                    $lic_cat = intval( isset( $lic['category_id'] ) ? $lic['category_id'] : 0 );
-                    if ( 5 !== $lic_cat ) {
-                        continue;
-                    }
+            if ( ! empty( $ir_points ) ) {
+                $last_point = end( $ir_points );
+                $ir_val     = isset( $last_point['value'] ) ? intval( $last_point['value'] ) : 0;
+                $irating    = ( $ir_val > 0 ) ? $ir_val : null;
 
-                    $ir_val = isset( $lic['irating'] ) ? $lic['irating'] : ( isset( $lic['i_rating'] ) ? $lic['i_rating'] : null );
-                    if ( null !== $ir_val ) {
-                        $ir_int  = intval( $ir_val );
-                        $irating = ( $ir_int > 0 ) ? $ir_int : null;
-                    }
-
-                    $sr_val = null;
-                    if ( isset( $lic['safety_rating'] ) ) {
-                        $sr_val = $lic['safety_rating'];
-                    } elseif ( isset( $lic['sub_level'] ) ) {
-                        $sr_val = $lic['sub_level'];
-                    }
-                    if ( null !== $sr_val ) {
-                        $sr_num = floatval( $sr_val );
-                        $safety_rating = ( $sr_num > 10 ) ? number_format( $sr_num / 100, 2 ) : number_format( $sr_num, 2 );
-                    }
-
-                    break;
+                if ( count( $ir_points ) >= 2 ) {
+                    $prev_point   = $ir_points[ count( $ir_points ) - 2 ];
+                    $prev_val     = isset( $prev_point['value'] ) ? intval( $prev_point['value'] ) : 0;
+                    $irating_prev = ( $prev_val > 0 ) ? $prev_val : null;
                 }
             }
 
-            if ( null === $irating ) {
-                error_log( 'EDR iRacing: No Sports Car (cat 5) license iRating found for ' . $name . ' (cust_id ' . $cust_id . ').' );
+            // ── 3. Sports Car Safety Rating via /member/chart_data ──
+            $safety_rating = null;
+            $sr_chart = $this->get_member_chart_data( $cust_id, 5, 3 );
+            $sr_points = $this->extract_chart_points( $sr_chart );
+            unset( $sr_chart );
+
+            if ( ! empty( $sr_points ) ) {
+                $last_sr = end( $sr_points );
+                $sr_val  = isset( $last_sr['value'] ) ? floatval( $last_sr['value'] ) : 0;
+                $safety_rating = ( $sr_val > 0 ) ? number_format( $sr_val, 2 ) : null;
             }
 
-            // ── 2. Recent races → last race display + trend badge ──
-            $recent = $this->get_member_recent_races( $cust_id );
+            // ── 4. Recent races → last race display ──
+            $last_race = null;
+            $recent    = $this->get_member_recent_races( $cust_id );
 
             if ( ! empty( $recent['races'] ) ) {
                 usort( $recent['races'], array( $this, 'sort_races_desc' ) );
@@ -308,30 +292,12 @@ class EDR_IRacing_API {
                     'date'      => isset( $any_race['session_start_time'] )  ? $any_race['session_start_time']  : '',
                 );
                 unset( $any_race );
-
-                // Trend: find the most recent Sports Car race to get oldi_rating.
-                // Also serves as fallback if the member profile had no SC license data.
-                foreach ( $recent['races'] as $race ) {
-                    $cat = intval( isset( $race['category_id'] ) ? $race['category_id'] : 0 );
-                    if ( 5 !== $cat ) {
-                        continue;
-                    }
-
-                    $oldi_raw     = isset( $race['oldi_rating'] ) ? intval( $race['oldi_rating'] ) : null;
-                    $irating_prev = ( null !== $oldi_raw && $oldi_raw >= 0 ) ? $oldi_raw : null;
-
-                    if ( null === $irating ) {
-                        $newi_raw = isset( $race['newi_rating'] ) ? intval( $race['newi_rating'] ) : null;
-                        $irating  = ( null !== $newi_raw && $newi_raw >= 0 ) ? $newi_raw : null;
-                    }
-                    if ( null === $safety_rating && isset( $race['new_sub_level'] ) ) {
-                        $safety_rating = number_format( $race['new_sub_level'] / 100, 2 );
-                    }
-
-                    break;
-                }
             }
             unset( $recent );
+
+            if ( null === $irating ) {
+                error_log( 'EDR iRacing: No Sports Car iRating chart data for ' . $name . ' (cust_id ' . $cust_id . ').' );
+            }
 
             $drivers[] = array(
                 'cust_id'        => $cust_id,
@@ -354,6 +320,31 @@ class EDR_IRacing_API {
         set_transient( 'edr_iracing_drivers_cache', $drivers, $cache_hours * HOUR_IN_SECONDS );
 
         return $drivers;
+    }
+
+    /**
+     * Parse the chart_data response into an array of {when, value} points.
+     * The API may return the data nested under different keys.
+     */
+    private function extract_chart_points( $chart ) {
+        if ( ! is_array( $chart ) ) {
+            return array();
+        }
+
+        if ( isset( $chart['data'] ) && is_array( $chart['data'] ) ) {
+            return $chart['data'];
+        }
+
+        if ( isset( $chart['chart_data'] ) && is_array( $chart['chart_data'] ) ) {
+            return $chart['chart_data'];
+        }
+
+        $first = reset( $chart );
+        if ( is_array( $first ) && ( isset( $first['value'] ) || isset( $first['when'] ) ) ) {
+            return $chart;
+        }
+
+        return array();
     }
 
     public function sort_races_desc( $a, $b ) {

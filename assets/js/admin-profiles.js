@@ -108,36 +108,59 @@
             }
 
             var d = resp.data;
-            var css = 'background:#f9f9f9;border:1px solid #ddd;padding:12px 16px;margin:8px 0 12px;font-size:11px;font-family:monospace;max-height:500px;overflow:auto;white-space:pre-wrap;word-break:break-all';
+            var css = 'background:#f9f9f9;border:1px solid #ddd;padding:12px 16px;margin:8px 0 12px;font-size:12px;font-family:monospace;max-height:500px;overflow:auto';
             var html = '<div style="' + css + '">';
 
-            html += '<strong style="font-size:13px">/member/get response:</strong><br>';
-            if (d.member_get_keys) {
-                html += 'Top-level keys: ' + JSON.stringify(d.member_get_keys) + '<br>';
-            }
-            if (d.member_keys) {
-                html += 'Member object keys: ' + JSON.stringify(d.member_keys) + '<br>';
-            }
-            if (d.license_sample) {
-                html += '<span style="color:#0a7227">License sample: ' + JSON.stringify(d.license_sample) + '</span><br>';
+            var ok = '<span style="color:#0a7227;font-weight:bold">';
+            var bad = '<span style="color:#b32d2e;font-weight:bold">';
+
+            html += '<strong style="font-size:14px">Sports Car iRating (/member/chart_data cat=5 type=1):</strong><br>';
+            if (d.sports_car_irating !== null && d.sports_car_irating !== undefined) {
+                html += ok + d.sports_car_irating + '</span>';
+                if (d.ir_data_count) html += ' (' + d.ir_data_count + ' data points)';
             } else {
-                html += '<span style="color:#b32d2e">No licenses array in member data.</span><br>';
+                html += bad + 'NOT FOUND</span>';
+                if (d.ir_chart_raw_keys) html += ' | chart keys: ' + JSON.stringify(d.ir_chart_raw_keys);
+                if (d.ir_chart_full) html += '<br>Full response: ' + JSON.stringify(d.ir_chart_full);
             }
 
-            html += '<br><strong style="font-size:13px">Career stats:</strong><br>';
-            if (d.career_first_entry) {
-                html += 'First entry: ' + JSON.stringify(d.career_first_entry) + '<br>';
+            html += '<br><br><strong style="font-size:14px">Sports Car Safety Rating (/member/chart_data cat=5 type=3):</strong><br>';
+            if (d.sports_car_sr !== null && d.sports_car_sr !== undefined) {
+                html += ok + d.sports_car_sr + '</span>';
+            } else {
+                html += bad + 'NOT FOUND</span>';
+                if (d.sr_chart_full) html += '<br>Full response: ' + JSON.stringify(d.sr_chart_full);
             }
 
-            html += '<br><strong style="font-size:13px">Recent races (' + (d.recent_races_count || 0) + ' total):</strong><br>';
-            if (d.race_all_keys && d.race_all_keys.length) {
-                html += '<span style="color:#0a7227;font-weight:bold">ALL KEYS on race object: ' + JSON.stringify(d.race_all_keys) + '</span><br><br>';
+            if (d.career_categories) {
+                html += '<br><br><strong>Career stats by category:</strong><br>';
+                for (var i = 0; i < d.career_categories.length; i++) {
+                    var c = d.career_categories[i];
+                    var highlight = (c.category_id === 5) ? ' style="color:#0a7227;font-weight:bold"' : '';
+                    html += '<span' + highlight + '>cat ' + c.category_id + ' (' + c.category + '): ' + c.starts + ' starts, ' + c.wins + ' wins</span><br>';
+                }
             }
-            if (d.race_first_raw) {
-                html += '<strong>Full first race (raw JSON):</strong><br>' + JSON.stringify(d.race_first_raw, null, 2) + '<br>';
+
+            if (d.recent_first3) {
+                html += '<br><strong>Recent races (' + (d.recent_races_count || 0) + '):</strong><br>';
+                for (var j = 0; j < d.recent_first3.length; j++) {
+                    var r = d.recent_first3[j];
+                    html += r.series + ' @ ' + r.track + ' | iR=' + r.newi_rating + ' SR=' + r.new_sub + '<br>';
+                }
             }
 
             html += '</div>';
+
+            if (d.sports_car_irating !== null && d.sports_car_irating !== undefined) {
+                var $ir = $('#stat-' + driverId + '-irating');
+                if ($ir.length && $ir.val() === '') { $ir.attr('placeholder', 'API: ' + d.sports_car_irating); }
+            }
+            if (d.sports_car_sr !== null && d.sports_car_sr !== undefined) {
+                var srVal = d.sports_car_sr;
+                var $sr = $('#stat-' + driverId + '-safety_rating');
+                if ($sr.length && $sr.val() === '') { $sr.attr('placeholder', 'API: ' + srVal); }
+            }
+
             $result.html(html);
         }).fail(function () {
             $btn.prop('disabled', false).text('Fetch Stats from iRacing');
