@@ -1,6 +1,7 @@
 <?php
 /**
- * Admin settings — API credentials, team config, and per-driver profiles.
+ * Admin settings — API credentials, display settings, feature toggles,
+ * and per-driver profile management.
  *
  * Drivers are managed entirely from the admin. The iRacing API is optional —
  * when linked via Customer ID, live stats override the manual values.
@@ -14,6 +15,8 @@ class EDR_Admin_Settings {
 
     private $option_group  = 'edr_iracing_settings_group';
     private $option_name   = 'edr_iracing_settings';
+    private $style_group   = 'edr_style_settings_group';
+    private $style_key     = 'edr_style_settings';
     private $profiles_key  = 'edr_driver_profiles';
     private $page_slug     = 'edr-iracing-drivers';
     private $profiles_slug = 'edr-iracing-profiles';
@@ -24,9 +27,9 @@ class EDR_Admin_Settings {
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_scripts' ) );
 
         add_action( 'admin_post_edr_save_profiles',  array( $this, 'handle_save_profiles' ) );
-        add_action( 'admin_post_edr_add_driver',      array( $this, 'handle_add_driver' ) );
-        add_action( 'admin_post_edr_delete_driver',    array( $this, 'handle_delete_driver' ) );
-        add_action( 'admin_post_edr_sync_api',         array( $this, 'handle_sync_api' ) );
+        add_action( 'admin_post_edr_add_driver',     array( $this, 'handle_add_driver' ) );
+        add_action( 'admin_post_edr_delete_driver',  array( $this, 'handle_delete_driver' ) );
+        add_action( 'admin_post_edr_sync_api',       array( $this, 'handle_sync_api' ) );
     }
 
     /* ================================================================
@@ -40,7 +43,7 @@ class EDR_Admin_Settings {
             'dashicons-car', 81
         );
         add_submenu_page(
-            $this->page_slug, 'API Settings', 'API Settings',
+            $this->page_slug, 'Settings', 'Settings',
             'manage_options', $this->page_slug, array( $this, 'render_settings_page' )
         );
         add_submenu_page(
@@ -50,30 +53,30 @@ class EDR_Admin_Settings {
     }
 
     public function enqueue_admin_scripts( $hook ) {
-        if ( false === strpos( $hook, $this->profiles_slug ) ) {
-            return;
+        if ( false !== strpos( $hook, $this->profiles_slug ) ) {
+            wp_enqueue_media();
+            wp_enqueue_script(
+                'edr-admin-profiles',
+                EDR_IRACING_PLUGIN_URL . 'assets/js/admin-profiles.js',
+                array( 'jquery' ), EDR_IRACING_VERSION, true
+            );
+            wp_enqueue_style(
+                'edr-admin-profiles-css',
+                EDR_IRACING_PLUGIN_URL . 'assets/css/admin-profiles.css',
+                array(), EDR_IRACING_VERSION
+            );
         }
-        wp_enqueue_media();
-        wp_enqueue_script(
-            'edr-admin-profiles',
-            EDR_IRACING_PLUGIN_URL . 'assets/js/admin-profiles.js',
-            array( 'jquery' ), EDR_IRACING_VERSION, true
-        );
-        wp_enqueue_style(
-            'edr-admin-profiles-css',
-            EDR_IRACING_PLUGIN_URL . 'assets/css/admin-profiles.css',
-            array(), EDR_IRACING_VERSION
-        );
     }
 
     /* ================================================================
-       API Settings page (unchanged)
+       Settings registration (API + Style)
        ================================================================ */
 
     public function register_settings() {
+        // API credentials
         register_setting( $this->option_group, $this->option_name, array(
             'type'              => 'array',
-            'sanitize_callback' => array( $this, 'sanitize' ),
+            'sanitize_callback' => array( $this, 'sanitize_api' ),
         ) );
 
         add_settings_section( 'edr_api_section', 'iRacing API Credentials', function () {
@@ -81,7 +84,7 @@ class EDR_Admin_Settings {
                . 'you can manage drivers manually without them. When connected, live stats override manual values.</p>';
         }, $this->page_slug );
 
-        $fields = array(
+        $api_fields = array(
             'client_id'     => 'Client ID',
             'client_secret' => 'Client Secret',
             'username'      => 'iRacing Username (email)',
@@ -89,8 +92,7 @@ class EDR_Admin_Settings {
             'team_id'       => 'Team ID',
             'cache_hours'   => 'Cache Duration (hours)',
         );
-
-        foreach ( $fields as $key => $label ) {
+        foreach ( $api_fields as $key => $label ) {
             add_settings_field( $key, $label, function () use ( $key ) {
                 $settings = get_option( $this->option_name, array() );
                 $value    = esc_attr( isset( $settings[ $key ] ) ? $settings[ $key ] : '' );
@@ -99,17 +101,92 @@ class EDR_Admin_Settings {
                     '<input type="%s" name="%s[%s]" value="%s" class="regular-text" autocomplete="off" />',
                     $type, $this->option_name, $key, $value
                 );
-                if ( 'team_id' === $key ) {
-                    echo '<p class="description">Find your team ID in the iRacing member site URL when viewing your team page.</p>';
-                }
-                if ( 'cache_hours' === $key ) {
-                    echo '<p class="description">Minimum 1 hour. Increase for larger rosters.</p>';
-                }
+                if ( 'team_id'     === $key ) { echo '<p class="description">Find your team ID in the iRacing member site URL when viewing your team page.</p>'; }
+                if ( 'cache_hours' === $key ) { echo '<p class="description">Minimum 1 hour. Increase for larger rosters.</p>'; }
             }, $this->page_slug, 'edr_api_section' );
+        }
+
+        // Style settings
+        register_setting( $this->style_group, $this->style_key, array(
+            'type'              => 'array',
+            'sanitize_callback' => array( $this, 'sanitize_style' ),
+        ) );
+
+        // Feature Toggles section
+        add_settings_section( 'edr_features_section', 'Feature Toggles', function () {
+            echo '<p>Enable or disable features globally. These are the defaults — override per-shortcode with attributes (e.g. <code>card_flip="no"</code>).</p>';
+        }, $this->page_slug . '-style' );
+
+        $feature_fields = array(
+            'feature_card_flip'      => array( 'Card Flip on Hover',        'Flip driver cards on hover to reveal gear/bio info.' ),
+            'feature_counters'       => array( 'Animated Stat Counters',    'Stats count up with animation when scrolled into view.' ),
+            'feature_show_trend'     => array( 'iRating Trend Badge',       'Show ▲/▼ badge indicating iRating change since last race.' ),
+            'feature_show_active'    => array( 'Recently Active Indicator', 'Green dot on drivers who raced within the last 30 days.' ),
+            'feature_show_spotlight' => array( 'Driver Spotlight Card',     'Featured drivers get a hero card at the top of the grid.' ),
+            'feature_show_ticker'    => array( 'Recent Race Ticker',        'Scrolling ticker of latest race results (off by default).' ),
+            'feature_show_filter'    => array( 'Role Filter Bar',           'Show filter buttons to display drivers by team role (off by default).' ),
+            'feature_show_summary'   => array( 'Team Summary Bar',          'Stat bar showing total wins, starts, average iRating.' ),
+            'feature_show_last_race' => array( 'Last Race Result',          'Show last race result strip on each driver card.' ),
+            'feature_show_photo'     => array( 'Driver Photos',             'Display uploaded driver photos.' ),
+            'feature_show_gear'      => array( 'Sim Setup / Gear Section',  'Show sim hardware info on card back (or front in non-flip mode).' ),
+        );
+
+        foreach ( $feature_fields as $key => $info ) {
+            add_settings_field( $key, $info[0], function () use ( $key, $info ) {
+                $style = get_option( $this->style_key, array() );
+                $val   = isset( $style[ $key ] ) ? $style[ $key ] : '1';
+                printf(
+                    '<label><input type="checkbox" name="%s[%s]" value="1" %s /> %s</label>',
+                    $this->style_key, $key, checked( '1', $val, false ), esc_html( $info[1] )
+                );
+            }, $this->page_slug . '-style', 'edr_features_section' );
+        }
+
+        // Display Style section
+        add_settings_section( 'edr_style_section', 'Display Style', function () {
+            echo '<p>Customise colours, border radius, and the subtitle text. Changes apply site-wide.</p>';
+        }, $this->page_slug . '-style' );
+
+        $style_fields = array(
+            'accent_color'  => array( 'Accent Colour',    'color',  '#f1c40f',  'Card borders, badges, and highlights.' ),
+            'card_bg'       => array( 'Card Background',  'color',  '#161616',  'Background colour for individual driver cards.' ),
+            'border_radius' => array( 'Border Radius (px)', 'number', '10',     'Rounded corners on cards (0 = sharp).' ),
+            'subtitle_text' => array( 'Subtitle Text',    'text',   '',         'Custom text below the heading. Leave blank for the default. Type "none" to hide it entirely.' ),
+        );
+
+        foreach ( $style_fields as $key => $info ) {
+            add_settings_field( $key, $info[0], function () use ( $key, $info ) {
+                $style = get_option( $this->style_key, array() );
+                $val   = isset( $style[ $key ] ) ? $style[ $key ] : $info[2];
+                if ( 'color' === $info[1] ) {
+                    printf(
+                        '<input type="color" name="%s[%s]" value="%s" id="edr-color-%s" style="height:34px;padding:2px;cursor:pointer" /> '
+                        . '<input type="text" value="%s" class="small-text" placeholder="%s" '
+                        . 'oninput="document.getElementById(\'edr-color-%s\').value=this.value" /> '
+                        . '<p class="description">%s</p>',
+                        $this->style_key, $key, esc_attr( $val ), esc_attr( $key ),
+                        esc_attr( $val ), esc_attr( $info[2] ),
+                        esc_attr( $key ),
+                        esc_html( $info[3] )
+                    );
+                } elseif ( 'number' === $info[1] ) {
+                    printf(
+                        '<input type="number" name="%s[%s]" value="%s" min="0" max="30" class="small-text" /> px'
+                        . '<p class="description">%s</p>',
+                        $this->style_key, $key, esc_attr( $val ), esc_html( $info[3] )
+                    );
+                } else {
+                    printf(
+                        '<input type="text" name="%s[%s]" value="%s" class="regular-text" placeholder="%s" />'
+                        . '<p class="description">%s</p>',
+                        $this->style_key, $key, esc_attr( $val ), esc_attr( $info[2] ), esc_html( $info[3] )
+                    );
+                }
+            }, $this->page_slug . '-style', 'edr_style_section' );
         }
     }
 
-    public function sanitize( $input ) {
+    public function sanitize_api( $input ) {
         return array(
             'client_id'     => sanitize_text_field( isset( $input['client_id'] )     ? $input['client_id']     : '' ),
             'client_secret' => sanitize_text_field( isset( $input['client_secret'] ) ? $input['client_secret'] : '' ),
@@ -120,6 +197,37 @@ class EDR_Admin_Settings {
         );
     }
 
+    public function sanitize_style( $input ) {
+        $feature_keys = array(
+            'feature_card_flip', 'feature_counters', 'feature_show_trend',
+            'feature_show_active', 'feature_show_spotlight', 'feature_show_ticker',
+            'feature_show_filter', 'feature_show_summary', 'feature_show_last_race',
+            'feature_show_photo', 'feature_show_gear',
+        );
+
+        $out = array();
+
+        foreach ( $feature_keys as $k ) {
+            $out[ $k ] = ( isset( $input[ $k ] ) && '1' === strval( $input[ $k ] ) ) ? '1' : '0';
+        }
+
+        // Accent colour — validate hex
+        $accent = isset( $input['accent_color'] ) ? trim( $input['accent_color'] ) : '#f1c40f';
+        $out['accent_color'] = preg_match( '/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/', $accent ) ? $accent : '#f1c40f';
+
+        $card_bg = isset( $input['card_bg'] ) ? trim( $input['card_bg'] ) : '#161616';
+        $out['card_bg'] = preg_match( '/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/', $card_bg ) ? $card_bg : '#161616';
+
+        $out['border_radius'] = min( 30, max( 0, absint( isset( $input['border_radius'] ) ? $input['border_radius'] : 10 ) ) );
+        $out['subtitle_text'] = sanitize_text_field( isset( $input['subtitle_text'] ) ? $input['subtitle_text'] : '' );
+
+        return $out;
+    }
+
+    /* ================================================================
+       Settings page
+       ================================================================ */
+
     public function render_settings_page() {
         if ( ! current_user_can( 'manage_options' ) ) { return; }
         $settings = get_option( $this->option_name, array() );
@@ -127,18 +235,36 @@ class EDR_Admin_Settings {
                       && ! empty( $settings['username'] )  && ! empty( $settings['password'] );
         ?>
         <div class="wrap">
-            <h1>iRacing Drivers &mdash; API Settings</h1>
+            <h1>iRacing Drivers &mdash; Settings</h1>
+
             <?php if ( ! $is_configured ) : ?>
-            <div class="notice notice-info"><p>API credentials are <strong>optional</strong>. You can add drivers manually on the <a href="<?php echo esc_url( admin_url( 'admin.php?page=' . $this->profiles_slug ) ); ?>">Manage Drivers</a> page without them.</p></div>
+            <div class="notice notice-info">
+                <p>API credentials are <strong>optional</strong>. You can add drivers manually on the
+                <a href="<?php echo esc_url( admin_url( 'admin.php?page=' . $this->profiles_slug ) ); ?>">Manage Drivers</a> page without them.</p>
+            </div>
             <?php endif; ?>
 
+            <!-- ── API Credentials ── -->
+            <h2>API Credentials</h2>
             <form method="post" action="options.php">
                 <?php settings_fields( $this->option_group ); ?>
                 <?php do_settings_sections( $this->page_slug ); ?>
-                <?php submit_button( 'Save Settings' ); ?>
+                <?php submit_button( 'Save API Settings' ); ?>
             </form>
 
             <hr />
+
+            <!-- ── Feature Toggles + Display Style ── -->
+            <h2>Feature Toggles &amp; Display Style</h2>
+            <form method="post" action="options.php">
+                <?php settings_fields( $this->style_group ); ?>
+                <?php do_settings_sections( $this->page_slug . '-style' ); ?>
+                <?php submit_button( 'Save Display Settings' ); ?>
+            </form>
+
+            <hr />
+
+            <!-- ── Cache Management ── -->
             <h2>Cache Management</h2>
             <p>Driver data is cached to avoid excessive API calls.</p>
             <form method="post">
@@ -149,11 +275,13 @@ class EDR_Admin_Settings {
             <?php $this->handle_cache_clear(); ?>
 
             <hr />
+
+            <!-- ── Shortcode Reference ── -->
             <h2>Shortcode Reference</h2>
             <p>Place on any page or post:</p>
             <pre style="background:#f5f5f5;padding:12px;border-radius:4px;">[iracing_drivers]</pre>
 
-            <table class="widefat striped" style="max-width:900px">
+            <table class="widefat striped" style="max-width:1000px">
                 <thead><tr><th>Attribute</th><th>Default</th><th>Options</th><th>Description</th></tr></thead>
                 <tbody>
                     <tr><td><code>title</code></td><td>Our Drivers</td><td>Any text</td><td>Heading above the display</td></tr>
@@ -161,14 +289,23 @@ class EDR_Admin_Settings {
                     <tr><td><code>columns</code></td><td>auto</td><td>auto, 1, 2, 3, 4</td><td>Cards per row (cards layout only)</td></tr>
                     <tr><td><code>sort_by</code></td><td>irating</td><td>irating, wins, starts, name, custom</td><td>Sort field. <em>custom</em> uses Display Order</td></tr>
                     <tr><td><code>sort_order</code></td><td>desc</td><td>asc, desc</td><td>Ascending or descending</td></tr>
-                    <tr><td><code>accent</code></td><td>red</td><td>red, blue, green, gold</td><td>Highlight colour for badges and hover</td></tr>
+                    <tr><td><code>accent</code></td><td>auto</td><td>auto, red, blue, green, gold</td><td><em>auto</em> uses the accent colour set above; presets override it</td></tr>
                     <tr><td><code>card_style</code></td><td>default</td><td>default, minimal</td><td><em>minimal</em> strips the card to essentials</td></tr>
-                    <tr><td><code>show_summary</code></td><td>yes</td><td>yes, no</td><td>Team stat cards at the top</td></tr>
-                    <tr><td><code>show_last_race</code></td><td>yes</td><td>yes, no</td><td>Last race result</td></tr>
-                    <tr><td><code>show_photo</code></td><td>yes</td><td>yes, no</td><td>Driver photos (if uploaded)</td></tr>
+                    <tr><td colspan="4" style="background:#f9f9f9;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Feature toggles — use &ldquo;yes&rdquo;, &ldquo;no&rdquo;, or &ldquo;inherit&rdquo; (uses admin default)</td></tr>
+                    <tr><td><code>show_summary</code></td><td>inherit</td><td>yes, no</td><td>Team stat bar at the top</td></tr>
+                    <tr><td><code>show_last_race</code></td><td>inherit</td><td>yes, no</td><td>Last race result strip</td></tr>
+                    <tr><td><code>show_photo</code></td><td>inherit</td><td>yes, no</td><td>Driver photos</td></tr>
+                    <tr><td><code>show_gear</code></td><td>inherit</td><td>yes, no</td><td>Sim gear / setup section</td></tr>
+                    <tr><td><code>card_flip</code></td><td>inherit</td><td>yes, no</td><td>3D flip on hover to reveal bio/gear</td></tr>
+                    <tr><td><code>counters</code></td><td>inherit</td><td>yes, no</td><td>Animated stat counters</td></tr>
+                    <tr><td><code>show_trend</code></td><td>inherit</td><td>yes, no</td><td>iRating trend badge (▲/▼)</td></tr>
+                    <tr><td><code>show_active</code></td><td>inherit</td><td>yes, no</td><td>Recently active indicator</td></tr>
+                    <tr><td><code>show_spotlight</code></td><td>inherit</td><td>yes, no</td><td>Featured driver spotlight card</td></tr>
+                    <tr><td><code>show_ticker</code></td><td>inherit</td><td>yes, no</td><td>Scrolling race results ticker</td></tr>
+                    <tr><td><code>show_filter</code></td><td>inherit</td><td>yes, no</td><td>Role filter bar</td></tr>
+                    <tr><td colspan="4" style="background:#f9f9f9;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em">Individual stat columns (always explicit)</td></tr>
                     <tr><td><code>show_role</code></td><td>yes</td><td>yes, no</td><td>Team role badge</td></tr>
                     <tr><td><code>show_number</code></td><td>yes</td><td>yes, no</td><td>Driver number</td></tr>
-                    <tr><td><code>show_gear</code></td><td>yes</td><td>yes, no</td><td>Sim gear / setup section</td></tr>
                     <tr><td><code>show_wins</code></td><td>yes</td><td>yes, no</td><td>Wins stat</td></tr>
                     <tr><td><code>show_starts</code></td><td>yes</td><td>yes, no</td><td>Starts stat</td></tr>
                     <tr><td><code>show_top5</code></td><td>yes</td><td>yes, no</td><td>Top 5s stat</td></tr>
@@ -177,8 +314,8 @@ class EDR_Admin_Settings {
                 </tbody>
             </table>
 
-            <h3>Example with all options:</h3>
-            <pre style="background:#f5f5f5;padding:12px;border-radius:4px;">[iracing_drivers title="EDR Roster" layout="cards" columns="3" sort_by="custom" accent="red" show_role="yes" show_number="yes" show_gear="yes" show_summary="yes"]</pre>
+            <h3>Example:</h3>
+            <pre style="background:#f5f5f5;padding:12px;border-radius:4px;">[iracing_drivers title="EDR Roster" layout="cards" columns="3" sort_by="custom" card_flip="yes" show_ticker="yes"]</pre>
         </div>
         <?php
     }
@@ -216,10 +353,13 @@ class EDR_Admin_Settings {
             'pc'      => 'PC Specs',
             'other'   => 'Other Gear',
         );
+
+        $flag_options = $this->get_flag_options();
         ?>
         <div class="wrap">
             <h1>Manage Drivers</h1>
             <p>Add drivers manually and configure everything here. If an iRacing Customer ID is set and the API is connected, live stats will override manual values automatically.</p>
+            <p><em>Tip: drag the <strong>&#9776;</strong> handle on any driver card to reorder them (updates the Display Order automatically).</em></p>
 
             <?php if ( isset( $_GET['msg'] ) ) : ?>
                 <?php $this->render_admin_notice( sanitize_text_field( $_GET['msg'] ) ); ?>
@@ -232,7 +372,7 @@ class EDR_Admin_Settings {
                     <input type="hidden" name="action" value="edr_add_driver" />
                     <?php wp_nonce_field( 'edr_add_driver', 'edr_add_nonce' ); ?>
                     <label>
-                        <span>Driver Name <strong style="color:#e63946">*</strong></span>
+                        <span>Driver Name <strong style="color:#f1c40f">*</strong></span>
                         <input type="text" name="driver_name" required placeholder="e.g. Chris Wilson" />
                     </label>
                     <label>
@@ -276,11 +416,13 @@ class EDR_Admin_Settings {
                     <input type="hidden" name="action" value="edr_save_profiles" />
                     <?php wp_nonce_field( 'edr_save_profiles', 'edr_profiles_nonce' ); ?>
 
-                    <div class="edr-profiles-grid">
+                    <div class="edr-profiles-grid" id="edr-sortable-grid">
                         <?php foreach ( $profiles as $driver_id => $profile ) :
                             $name      = isset( $profile['name'] )      ? $profile['name']      : 'Unknown';
                             $cust_id   = isset( $profile['cust_id'] )   ? $profile['cust_id']   : '';
                             $photo     = isset( $profile['photo_url'] ) ? $profile['photo_url'] : '';
+                            $featured  = ! empty( $profile['featured'] );
+                            $flag_code = isset( $profile['flag_code'] ) ? $profile['flag_code'] : '';
 
                             $api_linked = false;
                             $api_data   = array();
@@ -294,13 +436,17 @@ class EDR_Admin_Settings {
                                 }
                             }
                         ?>
-                        <div class="edr-profile-card">
+                        <div class="edr-profile-card" data-driver-id="<?php echo esc_attr( $driver_id ); ?>">
 
                             <div class="edr-profile-card-header">
+                                <span class="edr-drag-handle" title="Drag to reorder">&#9776;</span>
                                 <strong><?php echo esc_html( $name ); ?></strong>
                                 <span class="edr-profile-cid">
                                     <?php if ( ! empty( $profile['number'] ) ) : ?>
-                                        <strong style="color:#e63946">#<?php echo esc_html( $profile['number'] ); ?></strong> &nbsp;
+                                        <strong style="color:#f1c40f">#<?php echo esc_html( $profile['number'] ); ?></strong> &nbsp;
+                                    <?php endif; ?>
+                                    <?php if ( $featured ) : ?>
+                                        <span style="color:#f1c40f" title="Featured / Spotlight">&#9733; Featured</span> &nbsp;
                                     <?php endif; ?>
                                     <?php if ( $api_linked ) : ?>
                                         <span style="color:#2ecc71" title="Live stats from iRacing API">&#9679; API linked</span>
@@ -312,7 +458,6 @@ class EDR_Admin_Settings {
                                 </span>
                             </div>
 
-                            <!-- Hidden driver ID -->
                             <input type="hidden" name="profiles[<?php echo esc_attr( $driver_id ); ?>][_id]" value="<?php echo esc_attr( $driver_id ); ?>" />
 
                             <!-- Photo -->
@@ -365,8 +510,20 @@ class EDR_Admin_Settings {
                                            value="<?php echo esc_attr( isset( $profile['number'] ) ? $profile['number'] : '' ); ?>" placeholder="e.g. 18" />
                                 </label>
                                 <label>
-                                    <span>Nationality</span>
+                                    <span>Country / Flag</span>
+                                    <select name="profiles[<?php echo esc_attr( $driver_id ); ?>][flag_code]"
+                                            class="edr-flag-select" data-cid="<?php echo esc_attr( $driver_id ); ?>">
+                                        <?php foreach ( $flag_options as $code => $label ) :
+                                            $sel = ( $flag_code === $code ) ? ' selected' : '';
+                                        ?>
+                                        <option value="<?php echo esc_attr( $code ); ?>"<?php echo $sel; ?>><?php echo esc_html( $label ); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Nationality <small>(text shown on card, auto-filled from Country above)</small></span>
                                     <input type="text" name="profiles[<?php echo esc_attr( $driver_id ); ?>][nationality]"
+                                           id="nat-<?php echo esc_attr( $driver_id ); ?>"
                                            value="<?php echo esc_attr( isset( $profile['nationality'] ) ? $profile['nationality'] : '' ); ?>" placeholder="e.g. Australia" />
                                 </label>
                                 <label>
@@ -375,9 +532,15 @@ class EDR_Admin_Settings {
                                            value="<?php echo esc_attr( isset( $profile['tagline'] ) ? $profile['tagline'] : '' ); ?>" placeholder="e.g. Spa specialist" />
                                 </label>
                                 <label>
-                                    <span>Display Order <small>(for sort_by="custom")</small></span>
+                                    <span>Display Order <small>(for sort_by="custom", lower = first)</small></span>
                                     <input type="number" name="profiles[<?php echo esc_attr( $driver_id ); ?>][sort_order]"
+                                           class="edr-sort-order-input"
                                            value="<?php echo esc_attr( isset( $profile['sort_order'] ) ? $profile['sort_order'] : '' ); ?>" placeholder="1" min="1" style="width:80px" />
+                                </label>
+                                <label style="flex-direction:row;align-items:center;gap:8px;">
+                                    <input type="checkbox" name="profiles[<?php echo esc_attr( $driver_id ); ?>][featured]"
+                                           value="1" <?php checked( $featured ); ?> />
+                                    <span>Featured / Spotlight <small>(shows as hero card at top of grid)</small></span>
                                 </label>
                             </div>
 
@@ -464,8 +627,8 @@ class EDR_Admin_Settings {
 
         $name    = sanitize_text_field( isset( $_POST['driver_name'] ) ? $_POST['driver_name'] : '' );
         $cust_id = sanitize_text_field( isset( $_POST['cust_id'] )     ? $_POST['cust_id']     : '' );
-        $role    = sanitize_text_field( isset( $_POST['role'] )         ? $_POST['role']         : '' );
-        $number  = sanitize_text_field( isset( $_POST['number'] )       ? $_POST['number']       : '' );
+        $role    = sanitize_text_field( isset( $_POST['role'] )        ? $_POST['role']        : '' );
+        $number  = sanitize_text_field( isset( $_POST['number'] )      ? $_POST['number']      : '' );
 
         if ( empty( $name ) ) {
             wp_redirect( admin_url( 'admin.php?page=' . $this->profiles_slug . '&msg=name_required' ) );
@@ -493,8 +656,10 @@ class EDR_Admin_Settings {
             'role'          => $role,
             'number'        => $number,
             'nationality'   => '',
+            'flag_code'     => '',
             'tagline'       => '',
             'sort_order'    => '',
+            'featured'      => '',
             'irating'       => '',
             'safety_rating' => '',
             'wins'          => '',
@@ -546,7 +711,7 @@ class EDR_Admin_Settings {
         $sanitized = array();
 
         $all_keys = array(
-            'name', 'cust_id', 'role', 'number', 'nationality', 'tagline', 'sort_order',
+            'name', 'cust_id', 'role', 'number', 'nationality', 'flag_code', 'tagline', 'sort_order', 'featured',
             'irating', 'safety_rating', 'wins', 'starts', 'top5', 'laps',
             'photo_url', 'wheel', 'pedals', 'rig', 'monitor', 'pc', 'other',
         );
@@ -562,6 +727,10 @@ class EDR_Admin_Settings {
                     $data[ $key ] = esc_url_raw( $val );
                 } elseif ( 'sort_order' === $key ) {
                     $data[ $key ] = $val !== '' ? absint( $val ) : '';
+                } elseif ( 'featured' === $key ) {
+                    $data[ $key ] = ( '1' === strval( $val ) ) ? '1' : '';
+                } elseif ( 'flag_code' === $key ) {
+                    $data[ $key ] = preg_replace( '/[^A-Z]/', '', strtoupper( sanitize_text_field( $val ) ) );
                 } elseif ( in_array( $key, array( 'wins', 'starts', 'top5', 'laps' ), true ) ) {
                     $data[ $key ] = $val !== '' ? absint( $val ) : '';
                 } else {
@@ -599,7 +768,7 @@ class EDR_Admin_Settings {
 
         $added = 0;
         foreach ( $drivers as $d ) {
-            $cid = intval( $d['cust_id'] );
+            $cid = intval( isset( $d['cust_id'] ) ? $d['cust_id'] : 0 );
             if ( ! $cid ) { continue; }
 
             $already_exists = isset( $profiles[ $cid ] );
@@ -619,8 +788,10 @@ class EDR_Admin_Settings {
                     'role'          => '',
                     'number'        => '',
                     'nationality'   => '',
+                    'flag_code'     => '',
                     'tagline'       => '',
                     'sort_order'    => '',
+                    'featured'      => '',
                     'irating'       => '',
                     'safety_rating' => '',
                     'wins'          => '',
@@ -686,5 +857,60 @@ class EDR_Admin_Settings {
         if ( ! wp_verify_nonce( isset( $_POST['edr_cache_nonce'] ) ? $_POST['edr_cache_nonce'] : '', 'edr_clear_cache' ) ) { return; }
         delete_transient( 'edr_iracing_drivers_cache' );
         echo '<div class="notice notice-success"><p>Driver cache cleared.</p></div>';
+    }
+
+    private function get_flag_options() {
+        return array(
+            ''   => '— No flag —',
+            'AU' => '🇦🇺 Australia',
+            'NZ' => '🇳🇿 New Zealand',
+            'GB' => '🇬🇧 United Kingdom',
+            'IE' => '🇮🇪 Ireland',
+            'US' => '🇺🇸 United States',
+            'CA' => '🇨🇦 Canada',
+            'MX' => '🇲🇽 Mexico',
+            'BR' => '🇧🇷 Brazil',
+            'AR' => '🇦🇷 Argentina',
+            'CL' => '🇨🇱 Chile',
+            'CO' => '🇨🇴 Colombia',
+            'DE' => '🇩🇪 Germany',
+            'FR' => '🇫🇷 France',
+            'IT' => '🇮🇹 Italy',
+            'ES' => '🇪🇸 Spain',
+            'PT' => '🇵🇹 Portugal',
+            'NL' => '🇳🇱 Netherlands',
+            'BE' => '🇧🇪 Belgium',
+            'SE' => '🇸🇪 Sweden',
+            'NO' => '🇳🇴 Norway',
+            'DK' => '🇩🇰 Denmark',
+            'FI' => '🇫🇮 Finland',
+            'AT' => '🇦🇹 Austria',
+            'CH' => '🇨🇭 Switzerland',
+            'PL' => '🇵🇱 Poland',
+            'CZ' => '🇨🇿 Czech Republic',
+            'HU' => '🇭🇺 Hungary',
+            'SK' => '🇸🇰 Slovakia',
+            'RO' => '🇷🇴 Romania',
+            'HR' => '🇭🇷 Croatia',
+            'RS' => '🇷🇸 Serbia',
+            'SI' => '🇸🇮 Slovenia',
+            'GR' => '🇬🇷 Greece',
+            'RU' => '🇷🇺 Russia',
+            'UA' => '🇺🇦 Ukraine',
+            'EE' => '🇪🇪 Estonia',
+            'LV' => '🇱🇻 Latvia',
+            'LT' => '🇱🇹 Lithuania',
+            'IS' => '🇮🇸 Iceland',
+            'TR' => '🇹🇷 Turkey',
+            'IL' => '🇮🇱 Israel',
+            'AE' => '🇦🇪 UAE',
+            'ZA' => '🇿🇦 South Africa',
+            'JP' => '🇯🇵 Japan',
+            'KR' => '🇰🇷 South Korea',
+            'CN' => '🇨🇳 China',
+            'IN' => '🇮🇳 India',
+            'SG' => '🇸🇬 Singapore',
+            'TH' => '🇹🇭 Thailand',
+        );
     }
 }

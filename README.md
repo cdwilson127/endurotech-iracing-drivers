@@ -1,141 +1,136 @@
-# Endurotech iRacing Drivers — WordPress Plugin
+# Endurotech iRacing Drivers
 
-A lightweight WordPress plugin that pulls live driver statistics from the **iRacing Data API** and displays them on your site using a simple shortcode. Built for [Endurotech Racing](https://www.endurotechracing.com).
+WordPress plugin that displays iRacing driver statistics for the Endurotech Racing team.
 
-## What It Displays
-
-Each driver card can show:
-
-| Data | Source | Required? |
-|---|---|---|
-| Driver Name | Team roster via `/data/team/get` | Auto (from API) |
-| iRating | Most recent race (`newi_rating`) | Auto (from API) |
-| Safety Rating | Most recent race (`new_sub_level`) | Auto (from API) |
-| Wins / Starts / Top 5s / Laps | Career stats via `/data/stats/member_career` | Auto (from API) |
-| Last Race Result | Position, track, series from `/data/stats/member_recent_races` | Auto (from API) |
-| **Driver Photo** | Uploaded via WordPress media library | **Optional** |
-| **Sim Gear / Setup** | Entered in admin (wheel, pedals, rig, display, PC) | **Optional** |
-
-The layout **adapts automatically** — if a driver has no photo or gear info, the card collapses cleanly to show just their stats. No empty boxes or broken layouts.
-
-Team summary cards show total drivers, average iRating, total wins, total starts, and total laps.
+**Version:** 1.6.0  
+**Requires:** PHP 7.4+, WordPress 5.8+
 
 ---
 
-## Requirements
-
-- WordPress 5.8+
-- PHP 8.0+
-- An **iRacing account** with [OAuth2 client credentials](https://oauth.iracing.com/oauth2/book/client_registration.html)
-- Your **iRacing Team ID**
-
 ## Installation
 
-1. **Copy** the `endurotech-iracing-drivers` folder into `wp-content/plugins/`.
+1. Download the ZIP from [GitHub Releases](https://github.com/cdwilson127/endurotech-iracing-drivers/releases).
+2. In WordPress Admin → Plugins → Add New → Upload Plugin, select the ZIP.
+3. Activate the plugin.
+4. Go to **iRacing Drivers → Manage Drivers** to add your team.
+5. Place `[iracing_drivers]` on any page.
 
-2. **Activate** in **WordPress Admin → Plugins**.
+### Updating (no reinstall needed)
 
-3. **Configure API credentials** in **iRacing Drivers → API Settings**:
-   - Client ID / Client Secret (from iRacing OAuth registration)
-   - Username (iRacing email) / Password
-   - Team ID (numeric, from the iRacing member site URL)
-   - Cache Duration (default: 1 hour)
+When a new release is published on GitHub, WordPress will show an **Update Available** notice in your Plugins screen — just like any other plugin. Click **Update Now**. All settings and driver data are stored in the database and are never touched by an update.
 
-4. **Add driver photos and gear** (optional) in **iRacing Drivers → Driver Profiles**:
-   - Click "Upload Photo" to use the WordPress media library
-   - Fill in any gear fields you want — leave blank to skip
-   - Click "Save All Profiles"
+---
 
-5. **Create a page** and add the shortcode:
+## Configuration
 
-   ```
-   [iracing_drivers]
-   ```
+### iRacing Drivers → Settings
 
-6. Publish. Done.
+**API Credentials** — optional. Without them you manage drivers manually.
 
-## Shortcode Options
+| Field | Description |
+|---|---|
+| Client ID | OAuth2 client ID from iRacing |
+| Client Secret | OAuth2 client secret |
+| iRacing Username | Your iRacing login email |
+| iRacing Password | Your iRacing password |
+| Team ID | Found in the iRacing member site URL for your team page |
+| Cache Duration | Hours between live data refreshes (default 1) |
+
+**Feature Toggles** — enable/disable every feature site-wide. These are the defaults; any can be overridden per-shortcode.
+
+| Feature | Default |
+|---|---|
+| Card flip on hover | On |
+| Animated stat counters | On |
+| iRating trend badge (▲/▼) | On |
+| Recently active indicator | On |
+| Driver spotlight card | On |
+| Race ticker | Off |
+| Role filter bar | Off |
+| Team summary bar | On |
+| Last race result | On |
+| Driver photos | On |
+| Sim gear / setup | On |
+
+**Display Style** — accent colour (default EDR yellow `#f1c40f`), card background, border radius, and subtitle text. Leave the subtitle blank for the default count, or type `none` to hide it entirely.
+
+---
+
+## Manage Drivers
+
+Add drivers manually. Every field is optional — add what you have.
+
+- **iRacing Customer ID** — links the driver to live API data (stats override manual values automatically)
+- **Country / Flag** — dropdown generates the emoji flag automatically
+- **Featured** — marks the driver as a spotlight/hero driver (shown above the main grid)
+- **Display Order** — used when `sort_by="custom"` in the shortcode
+- **Drag handle (≡)** — drag to reorder cards; Display Order updates automatically
+
+### Sync from API
+
+If API credentials are configured, **Sync Team Roster from iRacing API** imports all current team members as new driver profiles (existing profiles are unchanged).
+
+---
+
+## Shortcode
 
 ```
-[iracing_drivers title="Our Drivers" show_last_race="yes" layout="cards"]
+[iracing_drivers]
 ```
 
-| Attribute | Default | Description |
-|---|---|---|
-| `title` | `Our Drivers` | Heading text above the display |
-| `show_last_race` | `yes` | Show/hide last race info (`yes` or `no`) |
-| `layout` | `cards` | `cards` (grid with photos/gear) or `table` (compact rows) |
+### Attributes
 
-## Layout Behaviour
+| Attribute | Default | Options | Description |
+|---|---|---|---|
+| `title` | Our Drivers | Any text | Section heading |
+| `layout` | cards | cards, table | Card grid or compact table |
+| `columns` | auto | auto, 1, 2, 3, 4 | Cards per row |
+| `sort_by` | irating | irating, wins, starts, name, custom | Sort field |
+| `sort_order` | desc | asc, desc | Sort direction |
+| `accent` | auto | auto, red, blue, green, gold | Accent colour (`auto` = admin setting) |
+| `card_style` | default | default, minimal | Minimal strips to essentials |
+| `demo` | no | yes, no | Sample data — no API needed |
 
-The card layout adapts based on what data is available for each driver:
+**Feature toggle attributes** — `yes`, `no`, or `inherit` (uses admin default):
 
-| Photo | Gear | Result |
-|---|---|---|
-| Yes | Yes | Full card — photo, stats, last race, gear section |
-| Yes | No | Card with photo + stats + last race (no gear section) |
-| No | Yes | Card with stats + last race + gear (no photo) |
-| No | No | Compact card with stats + last race only |
+`show_summary` · `show_last_race` · `show_photo` · `show_gear` · `card_flip` · `counters` · `show_trend` · `show_active` · `show_spotlight` · `show_ticker` · `show_filter`
 
-Every card always shows: rank, name, iRating badge, Safety Rating badge, wins, starts, top 5s, and laps.
+**Stat column attributes** (always explicit):
 
-## How Authentication Works
+`show_role` · `show_number` · `show_wins` · `show_starts` · `show_top5` · `show_laps`
 
-Uses iRacing's **OAuth2 password_limited flow** (same as [iracing-bot](https://github.com/dbousamra/iracing-bot)):
+### Examples
 
-1. Password → SHA-256 hashed with username as salt → base64
-2. Client secret → SHA-256 hashed with client ID as salt → base64
-3. POST to `https://oauth.iracing.com/oauth2/token`
-4. Bearer token cached as WordPress transient until near-expiry
-5. Data API requests → iRacing returns S3 pre-signed link → plugin fetches actual data
+```
+[iracing_drivers]
+[iracing_drivers demo="yes"]
+[iracing_drivers layout="table" show_gear="no"]
+[iracing_drivers columns="3" sort_by="custom" card_flip="yes" show_ticker="yes"]
+[iracing_drivers show_filter="yes" show_spotlight="yes" accent="red"]
+```
 
-**All API calls are server-side.** No credentials exposed to the browser.
+---
 
-## Caching
+## Features (v1.6)
 
-- **Access token**: transient (auto-expires ~2 min before token does)
-- **Driver data**: transient (configurable hours, default 1)
-- **Clear cache**: button on the API Settings page
+- **3D flip on hover** — front shows stats; back reveals gear, bio, and last race
+- **Driver spotlight** — featured drivers get a hero card above the main grid
+- **iRating trend badge** — ▲/▼ badge showing change since last race
+- **Recently active dot** — green indicator for drivers who raced in the last 30 days
+- **Animated stat counters** — numbers count up when scrolled into view
+- **Role filter bar** — filter cards by team role with one click
+- **Race ticker** — scrolling latest results strip
+- **Emoji flags** — auto-generated from ISO country code
+- **Style editor** — accent colour, card background, border radius, subtitle text, all in admin
+- **Auto image resize** — uploaded photos auto-cropped to 400×500 portrait
+- **One-click updates** — GitHub release checker; update without reinstalling
+
+---
 
 ## Security
 
-- Credentials in `wp_options` (standard WordPress storage)
-- All output escaped with `esc_html()` / `esc_attr()` / `esc_url()`
-- Admin pages require `manage_options` capability
-- Nonce-protected form actions
-- No external JS dependencies
-
-## File Structure
-
-```
-endurotech-iracing-drivers/
-├── endurotech-iracing-drivers.php       # Main plugin file
-├── includes/
-│   ├── class-iracing-api.php            # iRacing OAuth2 client & data fetching
-│   ├── class-admin-settings.php         # API settings + Driver Profiles admin pages
-│   └── class-driver-display.php         # Shortcode rendering (cards + table)
-├── assets/
-│   ├── css/
-│   │   ├── drivers.css                  # Frontend dark theme styles
-│   │   └── admin-profiles.css           # Admin profiles page styles
-│   └── js/
-│       └── admin-profiles.js            # WordPress media uploader integration
-└── README.md
-```
-
-## Finding Your Team ID
-
-1. Log in to [members.iracing.com](https://members.iracing.com)
-2. Navigate to your team page
-3. The Team ID is the numeric value in the URL (e.g., `teamId=12345`)
-
-## Troubleshooting
-
-| Issue | Solution |
-|---|---|
-| No data showing | Check iRacing Drivers → API Settings — all fields must be filled |
-| No drivers on Profiles page | Visit your frontend drivers page once first to populate the cache |
-| Photos not saving | Ensure your WordPress media library is working and you click "Save All Profiles" |
-| Stale data | Click "Clear Driver Cache" on API Settings |
-| Rate limited | Increase cache duration |
-| PHP errors | Check `wp-content/debug.log` — errors prefixed with `EDR iRacing:` |
+- All API credentials are stored in `wp_options` using WordPress's own encryption layer.
+- Passwords are hashed (SHA-256 + Base64) before being sent to iRacing's OAuth endpoint.
+- All admin forms use WordPress nonces.
+- All output is escaped with `esc_html`, `esc_attr`, `esc_url`.
+- Capability checks (`manage_options`) on all admin actions.

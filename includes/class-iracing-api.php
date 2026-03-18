@@ -218,13 +218,20 @@ class EDR_IRacing_API {
 
             $last_race      = null;
             $irating        = null;
+            $irating_prev   = null;
             $safety_rating  = null;
 
             if ( ! empty( $recent['races'] ) ) {
                 usort( $recent['races'], array( $this, 'sort_races_desc' ) );
                 $lr = $recent['races'][0];
 
-                $irating = isset( $lr['newi_rating'] ) ? $lr['newi_rating'] : null;
+                // Treat -1 (unrated / new member) as null — no valid iRating yet.
+                $newi_raw = isset( $lr['newi_rating'] ) ? intval( $lr['newi_rating'] ) : null;
+                $irating  = ( null !== $newi_raw && $newi_raw >= 0 ) ? $newi_raw : null;
+
+                $oldi_raw     = isset( $lr['oldi_rating'] ) ? intval( $lr['oldi_rating'] ) : null;
+                $irating_prev = ( null !== $oldi_raw && $oldi_raw >= 0 ) ? $oldi_raw : null;
+
                 if ( isset( $lr['new_sub_level'] ) ) {
                     $safety_rating = number_format( $lr['new_sub_level'] / 100, 2 );
                 }
@@ -247,15 +254,17 @@ class EDR_IRacing_API {
             unset( $recent );
 
             $drivers[] = array(
-                'cust_id'       => $cust_id,
-                'name'          => $name,
-                'irating'       => $irating,
-                'safety_rating' => $safety_rating,
-                'wins'          => $road_stats['wins'],
-                'starts'        => $road_stats['starts'],
-                'top5'          => $road_stats['top5'],
-                'laps'          => $road_stats['laps'],
-                'last_race'     => $last_race,
+                'cust_id'        => $cust_id,
+                'name'           => $name,
+                'irating'        => $irating,
+                'irating_prev'   => $irating_prev,
+                'safety_rating'  => $safety_rating,
+                'wins'           => $road_stats['wins'],
+                'starts'         => $road_stats['starts'],
+                'top5'           => $road_stats['top5'],
+                'laps'           => $road_stats['laps'],
+                'last_race'      => $last_race,
+                'last_race_date' => $last_race ? $last_race['date'] : '',
             );
         }
         unset( $roster );
@@ -274,8 +283,9 @@ class EDR_IRacing_API {
     }
 
     public function sort_by_irating_desc( $a, $b ) {
-        $a_ir = isset( $a['irating'] ) ? intval( $a['irating'] ) : 0;
-        $b_ir = isset( $b['irating'] ) ? intval( $b['irating'] ) : 0;
+        // Null iRating (unrated) sorts to the bottom.
+        $a_ir = ( isset( $a['irating'] ) && null !== $a['irating'] ) ? intval( $a['irating'] ) : -1;
+        $b_ir = ( isset( $b['irating'] ) && null !== $b['irating'] ) ? intval( $b['irating'] ) : -1;
         return $b_ir - $a_ir;
     }
 

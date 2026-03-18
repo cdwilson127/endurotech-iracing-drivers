@@ -1,4 +1,4 @@
-/* Admin — Manage Drivers page */
+/* Admin — Manage Drivers page v1.6 */
 
 /* Add driver box */
 .edr-add-driver-box {
@@ -195,3 +195,38 @@
     color: #a00;
     text-decoration: underline;
 }
+
+/* Drag-to-reorder handle */
+.edr-drag-handle {
+    cursor: grab;
+    color:  #bbb;
+    font-size: 16px;
+    margin-right: 8px;
+    user-select: none;
+    flex-shrink: 0;
+}
+.edr-drag-handle:active { cursor: grabbing; }
+
+/* Drag states */
+.edr-profile-card[draggable="true"] { cursor: default; }
+.edr-profile-card.edr-dragging {
+    opacity: .4;
+    outline: 2px dashed #f1c40f;
+}
+.edr-profile-card.edr-drag-over {
+    outline:        2px solid #f1c40f;
+    outline-offset: 2px;
+    background:     rgba(241,196,15,.04);
+}
+
+/* Flag select */
+.edr-flag-select { font-size: 14px; }
+
+/* Featured checkbox inline label */
+.edr-profile-gear-fields label[style*="row"] {
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 8px !important;
+    margin-bottom: 10px;
+}
+
