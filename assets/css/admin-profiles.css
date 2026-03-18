@@ -1,8 +1,68 @@
-/* Admin — Driver Profiles page */
+/* Admin — Manage Drivers page */
 
+/* Add driver box */
+.edr-add-driver-box {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-left: 4px solid #2271b1;
+    border-radius: 4px;
+    padding: 20px 24px;
+    margin: 16px 0;
+    max-width: 900px;
+}
+.edr-add-driver-box h3 {
+    margin: 0 0 12px;
+    font-size: 14px;
+}
+.edr-add-driver-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+}
+.edr-add-driver-form label {
+    display: flex;
+    flex-direction: column;
+    font-size: 12px;
+    font-weight: 600;
+    color: #555;
+}
+.edr-add-driver-form label span {
+    margin-bottom: 4px;
+}
+.edr-add-driver-form label small {
+    font-weight: 400;
+    color: #888;
+}
+.edr-add-driver-form input[type="text"],
+.edr-add-driver-form select {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 13px;
+    min-width: 160px;
+}
+.edr-add-driver-form input[type="text"]:focus,
+.edr-add-driver-form select:focus {
+    border-color: #2271b1;
+    outline: none;
+    box-shadow: 0 0 0 1px #2271b1;
+}
+
+/* Sync box */
+.edr-sync-box {
+    margin: 12px 0 20px;
+}
+.edr-sync-box .description {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #888;
+}
+
+/* Driver card grid */
 .edr-profiles-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
     gap: 20px;
     margin-top: 20px;
 }
@@ -30,14 +90,26 @@
 .edr-profile-cid {
     font-size: 12px;
     color: #888;
-    font-family: monospace;
 }
 
+/* Section headings inside cards */
+.edr-profile-section-heading {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #999;
+    margin: 16px 0 8px;
+    padding-top: 12px;
+    border-top: 1px solid #eee;
+}
+
+/* Photo row */
 .edr-profile-photo-row {
     display: flex;
     align-items: center;
     gap: 14px;
-    margin-bottom: 16px;
+    margin-bottom: 4px;
 }
 
 .edr-profile-photo-preview {
@@ -71,6 +143,7 @@
     flex-wrap: wrap;
 }
 
+/* Form fields */
 .edr-profile-gear-fields label {
     display: flex;
     flex-direction: column;
@@ -83,8 +156,14 @@
     color: #555;
     margin-bottom: 3px;
 }
+.edr-profile-gear-fields label span small {
+    font-weight: 400;
+    color: #888;
+}
 
-.edr-profile-gear-fields input[type="text"] {
+.edr-profile-gear-fields input[type="text"],
+.edr-profile-gear-fields input[type="number"],
+.edr-profile-gear-fields select {
     width: 100%;
     padding: 6px 10px;
     border: 1px solid #ddd;
@@ -92,8 +171,27 @@
     font-size: 13px;
 }
 
-.edr-profile-gear-fields input[type="text"]:focus {
+.edr-profile-gear-fields input[type="text"]:focus,
+.edr-profile-gear-fields input[type="number"]:focus,
+.edr-profile-gear-fields select:focus {
     border-color: #2271b1;
     outline: none;
     box-shadow: 0 0 0 1px #2271b1;
+}
+
+/* Card footer with delete */
+.edr-profile-card-footer {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #eee;
+    text-align: right;
+}
+.edr-delete-link {
+    color: #b32d2e;
+    text-decoration: none;
+    font-size: 12px;
+}
+.edr-delete-link:hover {
+    color: #a00;
+    text-decoration: underline;
 }

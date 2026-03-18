@@ -1,7 +1,9 @@
 <?php
 /**
  * Frontend rendering — [iracing_drivers] shortcode.
- * Fully configurable: layout, columns, sorting, accent colour, visible fields.
+ *
+ * Primary data source: admin-managed profiles (edr_driver_profiles).
+ * Secondary data source: iRacing API cache (overrides stats when linked).
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -32,25 +34,20 @@ class EDR_Driver_Display {
 
     public function render_shortcode( $atts ) {
         $atts = shortcode_atts( array(
-            // Content
             'title'          => 'Our Drivers',
             'demo'           => 'no',
-            // Layout
-            'layout'         => 'cards',   // cards | table
-            'columns'        => 'auto',    // auto | 1 | 2 | 3 | 4
-            'card_style'     => 'default', // default | minimal
-            'accent'         => 'red',     // red | blue | green | gold
-            // Sorting
-            'sort_by'        => 'irating', // irating | wins | starts | name | custom
-            'sort_order'     => 'desc',    // asc | desc
-            // Show/hide sections
+            'layout'         => 'cards',
+            'columns'        => 'auto',
+            'card_style'     => 'default',
+            'accent'         => 'red',
+            'sort_by'        => 'irating',
+            'sort_order'     => 'desc',
             'show_summary'   => 'yes',
             'show_last_race' => 'yes',
             'show_photo'     => 'yes',
             'show_role'      => 'yes',
             'show_number'    => 'yes',
             'show_gear'      => 'yes',
-            // Show/hide individual stats
             'show_wins'      => 'yes',
             'show_starts'    => 'yes',
             'show_top5'      => 'yes',
@@ -59,39 +56,26 @@ class EDR_Driver_Display {
 
         $o = $this->normalise_options( $atts );
 
-        $api = new EDR_IRacing_API();
-
         if ( $o['demo'] ) {
             $drivers  = $this->get_demo_drivers();
             $profiles = $this->get_demo_profiles();
         } else {
-            if ( ! $api->is_configured() ) {
-                if ( current_user_can( 'manage_options' ) ) {
-                    return '<div class="edr-drivers-notice">iRacing API credentials not configured. '
-                         . '<a href="' . esc_url( admin_url( 'admin.php?page=edr-iracing-drivers' ) ) . '">Configure now</a>. '
-                         . 'Use <code>[iracing_drivers demo="yes"]</code> to preview the layout.</div>';
-                }
-                return '';
-            }
-
-            $drivers = $api->get_all_driver_data();
-            unset( $api );
+            $result   = $this->build_driver_list();
+            $drivers  = $result['drivers'];
+            $profiles = $result['profiles'];
 
             if ( empty( $drivers ) ) {
                 if ( current_user_can( 'manage_options' ) ) {
-                    return '<div class="edr-drivers-notice">No driver data available. '
-                         . '<a href="' . esc_url( admin_url( 'admin.php?page=edr-iracing-drivers' ) ) . '">Check settings</a>.</div>';
+                    return '<div class="edr-drivers-notice">No drivers configured yet. '
+                         . '<a href="' . esc_url( admin_url( 'admin.php?page=edr-iracing-profiles' ) ) . '">Add drivers</a> '
+                         . 'or use <code>[iracing_drivers demo="yes"]</code> to preview the layout.</div>';
                 }
                 return '<div class="edr-drivers-notice">Driver stats are currently being updated. Check back soon.</div>';
             }
-
-            $profiles = get_option( 'edr_driver_profiles', array() );
-            if ( ! is_array( $profiles ) ) { $profiles = array(); }
         }
 
         $drivers = $this->sort_drivers( $drivers, $profiles, $o );
 
-        // Build wrapper classes
         $wrap_classes = array( 'edr-drivers-wrap' );
         if ( 'red' !== $o['accent'] ) { $wrap_classes[] = 'edr-accent-' . $o['accent']; }
 
@@ -101,7 +85,7 @@ class EDR_Driver_Display {
 
             <?php if ( $o['demo'] ) : ?>
             <div class="edr-demo-banner">
-                Preview mode &mdash; sample data only. Remove <code>demo="yes"</code> once your API credentials are active.
+                Preview mode &mdash; sample data only. Remove <code>demo="yes"</code> once your drivers are configured.
             </div>
             <?php endif; ?>
 
@@ -124,7 +108,84 @@ class EDR_Driver_Display {
     }
 
     /* ------------------------------------------------------------------
-     * Options normalisation — converts string atts to typed booleans/values
+     * Build driver list from profiles + API merge
+     * ------------------------------------------------------------------ */
+
+    private function build_driver_list() {
+        $profiles = get_option( 'edr_driver_profiles', array() );
+        if ( ! is_array( $profiles ) ) { $profiles = array(); }
+
+        $api_cache = get_transient( 'edr_iracing_drivers_cache' );
+        if ( ! is_array( $api_cache ) ) { $api_cache = array(); }
+
+        $api_lookup = array();
+        foreach ( $api_cache as $ad ) {
+            $api_lookup[ intval( $ad['cust_id'] ) ] = $ad;
+        }
+        unset( $api_cache );
+
+        $drivers = array();
+
+        foreach ( $profiles as $driver_id => $profile ) {
+            $name    = isset( $profile['name'] )    ? $profile['name']    : 'Unknown';
+            $cust_id = isset( $profile['cust_id'] ) ? $profile['cust_id'] : '';
+
+            $manual_ir = isset( $profile['irating'] )       ? $profile['irating']       : '';
+            $manual_sr = isset( $profile['safety_rating'] )  ? $profile['safety_rating'] : '';
+            $manual_w  = isset( $profile['wins'] )           ? $profile['wins']          : '';
+            $manual_s  = isset( $profile['starts'] )         ? $profile['starts']        : '';
+            $manual_t5 = isset( $profile['top5'] )           ? $profile['top5']          : '';
+            $manual_l  = isset( $profile['laps'] )           ? $profile['laps']          : '';
+
+            $irating       = $manual_ir !== '' ? intval( $manual_ir ) : 0;
+            $safety_rating = $manual_sr !== '' ? $manual_sr           : '';
+            $wins          = $manual_w  !== '' ? intval( $manual_w )  : 0;
+            $starts        = $manual_s  !== '' ? intval( $manual_s )  : 0;
+            $top5          = $manual_t5 !== '' ? intval( $manual_t5 ) : 0;
+            $laps          = $manual_l  !== '' ? intval( $manual_l )  : 0;
+            $last_race     = null;
+
+            if ( $cust_id && is_numeric( $cust_id ) && isset( $api_lookup[ intval( $cust_id ) ] ) ) {
+                $api = $api_lookup[ intval( $cust_id ) ];
+
+                if ( $manual_ir === '' && isset( $api['irating'] ) )       { $irating       = $api['irating']; }
+                if ( $manual_sr === '' && isset( $api['safety_rating'] ) ) { $safety_rating  = $api['safety_rating']; }
+                if ( $manual_w  === '' && isset( $api['wins'] ) )          { $wins           = intval( $api['wins'] ); }
+                if ( $manual_s  === '' && isset( $api['starts'] ) )        { $starts         = intval( $api['starts'] ); }
+                if ( $manual_t5 === '' && isset( $api['top5'] ) )          { $top5           = intval( $api['top5'] ); }
+                if ( $manual_l  === '' && isset( $api['laps'] ) )          { $laps           = intval( $api['laps'] ); }
+
+                if ( ! empty( $api['last_race'] ) ) {
+                    $last_race = $api['last_race'];
+                }
+
+                if ( $name === 'Unknown' && ! empty( $api['name'] ) ) {
+                    $name = $api['name'];
+                }
+
+                unset( $api );
+            }
+
+            $drivers[] = array(
+                'driver_id'     => $driver_id,
+                'cust_id'       => $cust_id ? $cust_id : $driver_id,
+                'name'          => $name,
+                'irating'       => $irating,
+                'safety_rating' => $safety_rating,
+                'wins'          => $wins,
+                'starts'        => $starts,
+                'top5'          => $top5,
+                'laps'          => $laps,
+                'last_race'     => $last_race,
+            );
+        }
+        unset( $api_lookup );
+
+        return array( 'drivers' => $drivers, 'profiles' => $profiles );
+    }
+
+    /* ------------------------------------------------------------------
+     * Options normalisation
      * ------------------------------------------------------------------ */
 
     private function normalise_options( $atts ) {
@@ -163,8 +224,8 @@ class EDR_Driver_Display {
         $sort_order = $o['sort_order'];
 
         usort( $drivers, function ( $a, $b ) use ( $sort_by, $sort_order, $profiles ) {
-            $cid_a = intval( $a['cust_id'] );
-            $cid_b = intval( $b['cust_id'] );
+            $id_a = isset( $a['driver_id'] ) ? $a['driver_id'] : $a['cust_id'];
+            $id_b = isset( $b['driver_id'] ) ? $b['driver_id'] : $b['cust_id'];
 
             switch ( $sort_by ) {
                 case 'name':
@@ -177,10 +238,10 @@ class EDR_Driver_Display {
                     $result = intval( $a['starts'] ) - intval( $b['starts'] );
                     break;
                 case 'custom':
-                    $order_a = isset( $profiles[ $cid_a ]['sort_order'] ) && $profiles[ $cid_a ]['sort_order'] !== ''
-                        ? intval( $profiles[ $cid_a ]['sort_order'] ) : 9999;
-                    $order_b = isset( $profiles[ $cid_b ]['sort_order'] ) && $profiles[ $cid_b ]['sort_order'] !== ''
-                        ? intval( $profiles[ $cid_b ]['sort_order'] ) : 9999;
+                    $order_a = isset( $profiles[ $id_a ]['sort_order'] ) && $profiles[ $id_a ]['sort_order'] !== ''
+                        ? intval( $profiles[ $id_a ]['sort_order'] ) : 9999;
+                    $order_b = isset( $profiles[ $id_b ]['sort_order'] ) && $profiles[ $id_b ]['sort_order'] !== ''
+                        ? intval( $profiles[ $id_b ]['sort_order'] ) : 9999;
                     $result = $order_a - $order_b;
                     break;
                 case 'irating':
@@ -190,7 +251,6 @@ class EDR_Driver_Display {
                     break;
             }
 
-            // Name always sorts asc by default; everything else desc
             if ( 'name' === $sort_by || 'custom' === $sort_by ) {
                 return ( 'desc' === $sort_order ) ? -$result : $result;
             }
@@ -201,7 +261,7 @@ class EDR_Driver_Display {
     }
 
     /* ------------------------------------------------------------------
-     * Shared header
+     * Header
      * ------------------------------------------------------------------ */
 
     private function render_header( $title, $drivers ) {
@@ -254,8 +314,8 @@ class EDR_Driver_Display {
         ?>
         <div class="<?php echo esc_attr( $grid_class ); ?>">
             <?php foreach ( $drivers as $i => $driver ) :
-                $cid       = intval( $driver['cust_id'] );
-                $profile   = isset( $profiles[ $cid ] ) ? $profiles[ $cid ] : array();
+                $did       = isset( $driver['driver_id'] ) ? $driver['driver_id'] : $driver['cust_id'];
+                $profile   = isset( $profiles[ $did ] ) ? $profiles[ $did ] : array();
                 $photo     = isset( $profile['photo_url'] ) ? $profile['photo_url'] : '';
                 $role      = isset( $profile['role'] )      ? $profile['role']      : '';
                 $number    = isset( $profile['number'] )    ? $profile['number']    : '';
@@ -274,7 +334,6 @@ class EDR_Driver_Display {
             ?>
             <div class="<?php echo esc_attr( $card_class ); ?>">
 
-                <!-- Top: photo + identity -->
                 <div class="edr-card-top">
                     <?php if ( $has_photo ) : ?>
                     <div class="edr-card-photo">
@@ -318,7 +377,6 @@ class EDR_Driver_Display {
                     </div>
                 </div>
 
-                <!-- Stats row -->
                 <?php $any_stat = $o['show_wins'] || $o['show_starts'] || $o['show_top5'] || $o['show_laps']; ?>
                 <?php if ( $any_stat ) : ?>
                 <div class="edr-card-stats">
@@ -349,7 +407,6 @@ class EDR_Driver_Display {
                 </div>
                 <?php endif; ?>
 
-                <!-- Last race -->
                 <?php if ( $o['show_last_race'] && ! empty( $driver['last_race'] ) ) : ?>
                 <div class="edr-card-lastrace">
                     <span class="edr-lastrace-pos">P<?php echo esc_html( $driver['last_race']['finish'] ); ?></span>
@@ -360,7 +417,6 @@ class EDR_Driver_Display {
                 </div>
                 <?php endif; ?>
 
-                <!-- Gear -->
                 <?php if ( $has_gear && 'minimal' !== $o['card_style'] ) : ?>
                 <div class="edr-card-gear">
                     <span class="edr-gear-heading">Sim Setup</span>
@@ -407,8 +463,8 @@ class EDR_Driver_Display {
                 </thead>
                 <tbody>
                     <?php foreach ( $drivers as $i => $driver ) :
-                        $cid     = intval( $driver['cust_id'] );
-                        $profile = isset( $profiles[ $cid ] ) ? $profiles[ $cid ] : array();
+                        $did     = isset( $driver['driver_id'] ) ? $driver['driver_id'] : $driver['cust_id'];
+                        $profile = isset( $profiles[ $did ] ) ? $profiles[ $did ] : array();
                         $role    = isset( $profile['role'] )   ? $profile['role']   : '';
                         $number  = isset( $profile['number'] ) ? $profile['number'] : '';
                     ?>
@@ -524,17 +580,17 @@ class EDR_Driver_Display {
 
     private function get_demo_drivers() {
         return array(
-            array( 'cust_id' => 1001, 'name' => 'Chris Wilson',      'irating' => 4850, 'safety_rating' => '4.72', 'wins' => 12, 'starts' => 87, 'top5' => 34, 'laps' => 1842,
+            array( 'driver_id' => 1001, 'cust_id' => 1001, 'name' => 'Chris Wilson',      'irating' => 4850, 'safety_rating' => '4.72', 'wins' => 12, 'starts' => 87, 'top5' => 34, 'laps' => 1842,
                 'last_race' => array( 'series' => 'Creventic Endurance Series', 'track' => 'Circuit de Spa-Francorchamps', 'finish' => 1, 'start' => 3, 'incidents' => 2, 'sof' => 4210, 'date' => '' ) ),
-            array( 'cust_id' => 1002, 'name' => 'Erik van der Bijl', 'irating' => 4420, 'safety_rating' => '4.51', 'wins' => 8,  'starts' => 63, 'top5' => 27, 'laps' => 1390,
+            array( 'driver_id' => 1002, 'cust_id' => 1002, 'name' => 'Erik van der Bijl', 'irating' => 4420, 'safety_rating' => '4.51', 'wins' => 8,  'starts' => 63, 'top5' => 27, 'laps' => 1390,
                 'last_race' => array( 'series' => 'Global Endurance Tour', 'track' => 'Watkins Glen International', 'finish' => 2, 'start' => 1, 'incidents' => 0, 'sof' => 3980, 'date' => '' ) ),
-            array( 'cust_id' => 1003, 'name' => 'Aden Hartley',      'irating' => 3910, 'safety_rating' => '3.88', 'wins' => 4,  'starts' => 51, 'top5' => 19, 'laps' => 1105,
+            array( 'driver_id' => 1003, 'cust_id' => 1003, 'name' => 'Aden Hartley',      'irating' => 3910, 'safety_rating' => '3.88', 'wins' => 4,  'starts' => 51, 'top5' => 19, 'laps' => 1105,
                 'last_race' => array( 'series' => 'Creventic Endurance Series', 'track' => 'Mount Panorama Circuit', 'finish' => 4, 'start' => 6, 'incidents' => 4, 'sof' => 3750, 'date' => '' ) ),
-            array( 'cust_id' => 1004, 'name' => 'Luke Brennan',      'irating' => 3640, 'safety_rating' => '3.44', 'wins' => 2,  'starts' => 44, 'top5' => 14, 'laps' => 940,
-                'last_race' => array( 'series' => 'Global Endurance Tour', 'track' => 'Nürburgring Nordschleife', 'finish' => 7, 'start' => 5, 'incidents' => 6, 'sof' => 3420, 'date' => '' ) ),
-            array( 'cust_id' => 1005, 'name' => 'Sarah Kowalski',    'irating' => 3280, 'safety_rating' => '4.10', 'wins' => 1,  'starts' => 29, 'top5' => 9,  'laps' => 620,
+            array( 'driver_id' => 1004, 'cust_id' => 1004, 'name' => 'Luke Brennan',      'irating' => 3640, 'safety_rating' => '3.44', 'wins' => 2,  'starts' => 44, 'top5' => 14, 'laps' => 940,
+                'last_race' => array( 'series' => 'Global Endurance Tour', 'track' => 'Nurburgring Nordschleife', 'finish' => 7, 'start' => 5, 'incidents' => 6, 'sof' => 3420, 'date' => '' ) ),
+            array( 'driver_id' => 1005, 'cust_id' => 1005, 'name' => 'Sarah Kowalski',    'irating' => 3280, 'safety_rating' => '4.10', 'wins' => 1,  'starts' => 29, 'top5' => 9,  'laps' => 620,
                 'last_race' => array( 'series' => 'iRacing Endurance Series', 'track' => 'Suzuka International Racing Course', 'finish' => 3, 'start' => 4, 'incidents' => 1, 'sof' => 2990, 'date' => '' ) ),
-            array( 'cust_id' => 1006, 'name' => 'Marco Deluca',      'irating' => 2970, 'safety_rating' => '2.85', 'wins' => 0,  'starts' => 18, 'top5' => 5,  'laps' => 388,
+            array( 'driver_id' => 1006, 'cust_id' => 1006, 'name' => 'Marco Deluca',      'irating' => 2970, 'safety_rating' => '2.85', 'wins' => 0,  'starts' => 18, 'top5' => 5,  'laps' => 388,
                 'last_race' => array( 'series' => 'Global Endurance Tour', 'track' => 'Daytona International Speedway', 'finish' => 11, 'start' => 9, 'incidents' => 8, 'sof' => 2710, 'date' => '' ) ),
         );
     }
@@ -542,40 +598,40 @@ class EDR_Driver_Display {
     private function get_demo_profiles() {
         return array(
             1001 => array(
-                'photo_url'   => '', 'role' => 'captain', 'number' => '18',
-                'nationality' => '🇦🇺 Australia', 'tagline' => 'Spa specialist · 3x podium winner',
-                'sort_order'  => 1, 'wheel' => 'Simucube 2 Pro', 'pedals' => 'Heusinkveld Sprint',
+                'photo_url' => '', 'role' => 'captain', 'number' => '18',
+                'nationality' => 'Australia', 'tagline' => 'Spa specialist - 3x podium winner',
+                'sort_order' => 1, 'wheel' => 'Simucube 2 Pro', 'pedals' => 'Heusinkveld Sprint',
                 'rig' => 'Trak Racer TR160', 'monitor' => 'Samsung 49" Odyssey G9',
                 'pc' => 'RTX 4080, i9-13900K, 64GB', 'other' => '',
             ),
             1002 => array(
-                'photo_url'   => '', 'role' => 'lead', 'number' => '7',
-                'nationality' => '🇿🇦 South Africa', 'tagline' => 'Endurance specialist',
-                'sort_order'  => 2, 'wheel' => 'Fanatec DD2', 'pedals' => 'Fanatec Clubsport V3',
+                'photo_url' => '', 'role' => 'lead', 'number' => '7',
+                'nationality' => 'South Africa', 'tagline' => 'Endurance specialist',
+                'sort_order' => 2, 'wheel' => 'Fanatec DD2', 'pedals' => 'Fanatec Clubsport V3',
                 'rig' => 'Next Level Racing F-GT Elite', 'monitor' => 'LG 34" Ultrawide',
                 'pc' => '', 'other' => '',
             ),
             1003 => array(
                 'photo_url' => '', 'role' => 'pro', 'number' => '33',
-                'nationality' => '🇦🇺 Australia', 'tagline' => '',
+                'nationality' => 'Australia', 'tagline' => '',
                 'sort_order' => 3, 'wheel' => '', 'pedals' => '', 'rig' => '',
                 'monitor' => '', 'pc' => '', 'other' => '',
             ),
             1004 => array(
                 'photo_url' => '', 'role' => 'silver', 'number' => '44',
-                'nationality' => '🇳🇿 New Zealand', 'tagline' => '',
+                'nationality' => 'New Zealand', 'tagline' => '',
                 'sort_order' => 4, 'wheel' => '', 'pedals' => '', 'rig' => '',
                 'monitor' => '', 'pc' => '', 'other' => '',
             ),
             1005 => array(
                 'photo_url' => '', 'role' => 'bronze', 'number' => '55',
-                'nationality' => '🇬🇧 United Kingdom', 'tagline' => 'Clean racer · zero incident record',
+                'nationality' => 'United Kingdom', 'tagline' => 'Clean racer - zero incident record',
                 'sort_order' => 5, 'wheel' => '', 'pedals' => '', 'rig' => '',
                 'monitor' => '', 'pc' => '', 'other' => '',
             ),
             1006 => array(
                 'photo_url' => '', 'role' => 'academy', 'number' => '99',
-                'nationality' => '🇮🇹 Italy', 'tagline' => '',
+                'nationality' => 'Italy', 'tagline' => '',
                 'sort_order' => 6, 'wheel' => '', 'pedals' => '', 'rig' => '',
                 'monitor' => '', 'pc' => '', 'other' => '',
             ),
