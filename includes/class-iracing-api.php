@@ -223,33 +223,47 @@ class EDR_IRacing_API {
 
             if ( ! empty( $recent['races'] ) ) {
                 usort( $recent['races'], array( $this, 'sort_races_desc' ) );
-                $lr = $recent['races'][0];
 
-                // Treat -1 (unrated / new member) as null — no valid iRating yet.
-                $newi_raw = isset( $lr['newi_rating'] ) ? intval( $lr['newi_rating'] ) : null;
-                $irating  = ( null !== $newi_raw && $newi_raw >= 0 ) ? $newi_raw : null;
-
-                $oldi_raw     = isset( $lr['oldi_rating'] ) ? intval( $lr['oldi_rating'] ) : null;
-                $irating_prev = ( null !== $oldi_raw && $oldi_raw >= 0 ) ? $oldi_raw : null;
-
-                if ( isset( $lr['new_sub_level'] ) ) {
-                    $safety_rating = number_format( $lr['new_sub_level'] / 100, 2 );
-                }
-
-                // iRacing finish_position and start_position are 0-indexed (0 = 1st place).
-                $finish_raw = isset( $lr['finish_position'] ) ? $lr['finish_position'] : null;
-                $start_raw  = isset( $lr['start_position'] )  ? $lr['start_position']  : null;
-
-                $last_race = array(
-                    'series'    => isset( $lr['series_name'] )        ? $lr['series_name']        : '',
-                    'track'     => isset( $lr['track']['track_name'] ) ? $lr['track']['track_name'] : '',
+                // Most recent race of any type — used for the "last race" display strip.
+                $any_race   = $recent['races'][0];
+                $finish_raw = isset( $any_race['finish_position'] ) ? $any_race['finish_position'] : null;
+                $start_raw  = isset( $any_race['start_position'] )  ? $any_race['start_position']  : null;
+                $last_race  = array(
+                    'series'    => isset( $any_race['series_name'] )        ? $any_race['series_name']        : '',
+                    'track'     => isset( $any_race['track']['track_name'] ) ? $any_race['track']['track_name'] : '',
                     'finish'    => is_numeric( $finish_raw ) ? intval( $finish_raw ) + 1 : '-',
                     'start'     => is_numeric( $start_raw )  ? intval( $start_raw )  + 1 : '-',
-                    'incidents' => isset( $lr['incidents'] )           ? $lr['incidents']           : 0,
-                    'sof'       => isset( $lr['strength_of_field'] )   ? $lr['strength_of_field']   : 0,
-                    'date'      => isset( $lr['session_start_time'] )  ? $lr['session_start_time']  : '',
+                    'incidents' => isset( $any_race['incidents'] )           ? $any_race['incidents']           : 0,
+                    'sof'       => isset( $any_race['strength_of_field'] )   ? $any_race['strength_of_field']   : 0,
+                    'date'      => isset( $any_race['session_start_time'] )  ? $any_race['session_start_time']  : '',
                 );
-                unset( $lr );
+                unset( $any_race );
+
+                // iRating and Safety Rating must come from the most recent
+                // Sports Car (5) or Road (2) race — not oval or dirt.
+                $sc_road_ids = array( 2, 5 );
+                $sc_race     = null;
+                foreach ( $recent['races'] as $race ) {
+                    $cat = intval( isset( $race['category_id'] ) ? $race['category_id'] : 0 );
+                    if ( in_array( $cat, $sc_road_ids, true ) ) {
+                        $sc_race = $race;
+                        break;
+                    }
+                }
+
+                if ( $sc_race ) {
+                    // Treat -1 (unrated / new member) as null — no valid iRating yet.
+                    $newi_raw = isset( $sc_race['newi_rating'] ) ? intval( $sc_race['newi_rating'] ) : null;
+                    $irating  = ( null !== $newi_raw && $newi_raw >= 0 ) ? $newi_raw : null;
+
+                    $oldi_raw     = isset( $sc_race['oldi_rating'] ) ? intval( $sc_race['oldi_rating'] ) : null;
+                    $irating_prev = ( null !== $oldi_raw && $oldi_raw >= 0 ) ? $oldi_raw : null;
+
+                    if ( isset( $sc_race['new_sub_level'] ) ) {
+                        $safety_rating = number_format( $sc_race['new_sub_level'] / 100, 2 );
+                    }
+                    unset( $sc_race );
+                }
             }
             unset( $recent );
 

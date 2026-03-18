@@ -44,8 +44,9 @@ class EDR_Update_Checker {
 
     private function get_release() {
         $cached = get_transient( $this->transient_key );
+        // 'none' is the sentinel value cached when no release was found (avoids hammering GitHub API).
         if ( false !== $cached ) {
-            return $cached;
+            return ( 'none' === $cached ) ? null : $cached;
         }
 
         $response = wp_remote_get(
@@ -60,23 +61,43 @@ class EDR_Update_Checker {
         );
 
         if ( is_wp_error( $response ) ) {
+            error_log( 'EDR Update Checker: HTTP error — ' . $response->get_error_message() );
+            set_transient( $this->transient_key, 'none', HOUR_IN_SECONDS );
             return null;
         }
 
-        if ( 200 !== intval( wp_remote_retrieve_response_code( $response ) ) ) {
+        $code = intval( wp_remote_retrieve_response_code( $response ) );
+        if ( 200 !== $code ) {
+            error_log( 'EDR Update Checker: GitHub API returned HTTP ' . $code . '. No release found or repo is private.' );
+            set_transient( $this->transient_key, 'none', HOUR_IN_SECONDS );
             return null;
         }
 
         $body = json_decode( wp_remote_retrieve_body( $response ), true );
         if ( empty( $body['tag_name'] ) ) {
+            set_transient( $this->transient_key, 'none', HOUR_IN_SECONDS );
             return null;
+        }
+
+        // Prefer an uploaded ZIP asset over the auto-generated zipball (avoids folder rename issues).
+        $package = '';
+        if ( ! empty( $body['assets'] ) ) {
+            foreach ( $body['assets'] as $asset ) {
+                if ( isset( $asset['browser_download_url'] ) && substr( $asset['browser_download_url'], -4 ) === '.zip' ) {
+                    $package = $asset['browser_download_url'];
+                    break;
+                }
+            }
+        }
+        if ( ! $package ) {
+            $package = isset( $body['zipball_url'] ) ? $body['zipball_url'] : '';
         }
 
         $release = array(
             'version'     => ltrim( $body['tag_name'], 'v' ),
-            'package'     => isset( $body['zipball_url'] ) ? $body['zipball_url'] : '',
-            'details_url' => isset( $body['html_url'] )   ? $body['html_url']    : '',
-            'changelog'   => isset( $body['body'] )       ? $body['body']        : '',
+            'package'     => $package,
+            'details_url' => isset( $body['html_url'] ) ? $body['html_url'] : '',
+            'changelog'   => isset( $body['body'] )     ? $body['body']     : '',
         );
 
         set_transient( $this->transient_key, $release, 12 * HOUR_IN_SECONDS );
@@ -147,12 +168,19 @@ class EDR_Update_Checker {
             return $source;
         }
 
+        // Ensure the WP Filesystem is initialised before we try to move files.
+        if ( ! $wp_filesystem ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            WP_Filesystem();
+        }
+
         $correct = trailingslashit( dirname( $remote_source ) ) . 'endurotech-iracing-drivers/';
 
-        if ( $source !== $correct && $wp_filesystem ) {
+        if ( $wp_filesystem && $source !== $correct ) {
             if ( $wp_filesystem->move( $source, $correct, true ) ) {
                 return $correct;
             }
+            error_log( 'EDR Update Checker: could not rename ' . $source . ' to ' . $correct );
         }
 
         return $source;

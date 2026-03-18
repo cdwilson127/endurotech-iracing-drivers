@@ -45,6 +45,7 @@ class EDR_Driver_Display {
     public function render_shortcode( $atts ) {
         $atts = shortcode_atts( array(
             'title'          => 'Our Drivers',
+            'label'          => 'The Team',
             'demo'           => 'no',
             'layout'         => 'cards',
             'columns'        => 'auto',
@@ -109,7 +110,7 @@ class EDR_Driver_Display {
             </div>
             <?php endif; ?>
 
-            <?php $this->render_header( $o['title'], $drivers, $style_settings ); ?>
+            <?php $this->render_header( $o['title'], $o['label'], $drivers, $style_settings ); ?>
 
             <?php if ( $o['show_ticker'] ) : ?>
                 <?php $this->render_ticker( $drivers, $profiles, $o['ticker_speed'] ); ?>
@@ -287,6 +288,7 @@ class EDR_Driver_Display {
         }
 
         $o['title']      = $atts['title'];
+        $o['label']      = $atts['label'];
         $o['layout']     = in_array( strtolower( $atts['layout'] ), array( 'cards', 'table' ), true ) ? strtolower( $atts['layout'] ) : 'cards';
         $o['columns']    = in_array( strtolower( $atts['columns'] ), array( 'auto', '1', '2', '3', '4' ), true ) ? strtolower( $atts['columns'] ) : 'auto';
         $o['card_style'] = in_array( strtolower( $atts['card_style'] ), array( 'default', 'minimal' ), true ) ? strtolower( $atts['card_style'] ) : 'default';
@@ -401,12 +403,16 @@ class EDR_Driver_Display {
      * Header
      * ------------------------------------------------------------------ */
 
-    private function render_header( $title, $drivers, $style_settings ) {
+    private function render_header( $title, $label, $drivers, $style_settings ) {
         $subtitle = isset( $style_settings['subtitle_text'] ) ? trim( $style_settings['subtitle_text'] ) : '';
         $hidden   = ( 'none' === strtolower( $subtitle ) );
+        $show_label = ! empty( $label );
         ?>
         <div class="edr-drivers-header">
-            <h2><?php echo esc_html( $title ); ?></h2>
+            <?php if ( $show_label ) : ?>
+                <div class="edr-section-label"><?php echo esc_html( $label ); ?></div>
+            <?php endif; ?>
+            <h2 class="edr-section-heading"><?php echo esc_html( $title ); ?></h2>
             <?php if ( ! $hidden ) : ?>
                 <?php if ( '' !== $subtitle ) : ?>
                     <p class="edr-drivers-subtitle"><?php echo esc_html( $subtitle ); ?></p>

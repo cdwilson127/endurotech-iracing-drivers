@@ -102,7 +102,7 @@ class EDR_Admin_Settings {
                     $type, $this->option_name, $key, $value
                 );
                 if ( 'team_id'     === $key ) { echo '<p class="description">Find your team ID in the iRacing member site URL when viewing your team page.</p>'; }
-                if ( 'cache_hours' === $key ) { echo '<p class="description">Minimum 1 hour. Increase for larger rosters.</p>'; }
+                if ( 'cache_hours' === $key ) { echo '<p class="description">Hours between live data refreshes. Default <strong>24</strong> (once per day). The API is only called when the cache expires — not on every page visit.</p>'; }
             }, $this->page_slug, 'edr_api_section' );
         }
 
@@ -148,9 +148,9 @@ class EDR_Admin_Settings {
         }, $this->page_slug . '-style' );
 
         $style_fields = array(
-            'accent_color'  => array( 'Accent Colour',      'color',  '#f1c40f',  'Card borders, badges, and highlights.' ),
-            'card_bg'       => array( 'Card Background',    'color',  '#161616',  'Background colour for individual driver cards.' ),
-            'border_radius' => array( 'Border Radius (px)', 'number', '10',       'Rounded corners on cards (0 = sharp).' ),
+            'accent_color'  => array( 'Accent Colour',      'color',  '#f0f000',  'Card borders, badges, and highlights.' ),
+            'card_bg'       => array( 'Card Background',    'color',  '#111111',  'Background colour for individual driver cards.' ),
+            'border_radius' => array( 'Border Radius (px)', 'number', '0',        'Rounded corners on cards (0 = sharp, matches site style).' ),
             'subtitle_text' => array( 'Subtitle Text',      'text',   '',         'Custom text below the heading. Leave blank for the default. Type "none" to hide it entirely.' ),
             'ticker_speed'  => array( 'Ticker Speed (seconds)', 'ticker_speed', '60', 'How many seconds for one full scroll cycle. Higher = slower. Default 60.' ),
         );
@@ -292,7 +292,8 @@ class EDR_Admin_Settings {
             <table class="widefat striped" style="max-width:1000px">
                 <thead><tr><th>Attribute</th><th>Default</th><th>Options</th><th>Description</th></tr></thead>
                 <tbody>
-                    <tr><td><code>title</code></td><td>Our Drivers</td><td>Any text</td><td>Heading above the display</td></tr>
+                    <tr><td><code>title</code></td><td>Our Drivers</td><td>Any text</td><td>Main section heading</td></tr>
+                    <tr><td><code>label</code></td><td>The Team</td><td>Any text or empty</td><td>Small uppercase label above the heading (leave empty to hide)</td></tr>
                     <tr><td><code>layout</code></td><td>cards</td><td>cards, table</td><td>Card grid or compact table</td></tr>
                     <tr><td><code>columns</code></td><td>auto</td><td>auto, 1, 2, 3, 4</td><td>Cards per row (cards layout only)</td></tr>
                     <tr><td><code>sort_by</code></td><td>irating</td><td>irating, wins, starts, name, custom</td><td>Sort field. <em>custom</em> uses Display Order</td></tr>

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Endurotech iRacing Drivers
  * Description: Displays iRacing driver stats for the Endurotech Racing team via the [iracing_drivers] shortcode.
- * Version: 1.6.0
+ * Version: 1.6.2
  * Author: Endurotech Racing
  * License: GPL v2 or later
  * Text Domain: endurotech-iracing
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'EDR_IRACING_VERSION', '1.6.0' );
+define( 'EDR_IRACING_VERSION', '1.6.2' );
 define( 'EDR_IRACING_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'EDR_IRACING_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -32,7 +32,7 @@ function edr_iracing_activate() {
             'username'      => '',
             'password'      => '',
             'team_id'       => '',
-            'cache_hours'   => 1,
+            'cache_hours'   => 24,
         ) );
     }
     edr_maybe_upgrade();
@@ -57,9 +57,9 @@ function edr_maybe_upgrade() {
 
     // Default values for edr_style_settings — only written if the key is missing.
     $style_defaults = array(
-        'accent_color'           => '#f1c40f',
-        'card_bg'                => '#161616',
-        'border_radius'          => '10',
+        'accent_color'           => '#f0f000',
+        'card_bg'                => '#111111',
+        'border_radius'          => '0',
         'subtitle_text'          => '',
         'ticker_speed'           => '60',
         'feature_card_flip'      => '1',
