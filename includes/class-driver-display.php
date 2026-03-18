@@ -73,6 +73,7 @@ class EDR_Driver_Display {
             'show_starts'    => 'yes',
             'show_top5'      => 'yes',
             'show_laps'      => 'yes',
+            'max_width'      => '',
         ), $atts, 'iracing_drivers' );
 
         $style_settings = get_option( 'edr_style_settings', array() );
@@ -99,10 +100,11 @@ class EDR_Driver_Display {
         $drivers = $this->sort_drivers( $drivers, $profiles, $o );
 
         $inline_css = $this->build_inline_css( $style_settings, $o['accent'], $o['ticker_speed'] );
+        $wrap_style = $this->build_wrap_style( $inline_css, $o['max_width'] );
 
         ob_start();
         ?>
-        <div class="edr-drivers-wrap" style="<?php echo esc_attr( $inline_css ); ?>">
+        <div class="edr-drivers-wrap" style="<?php echo esc_attr( $wrap_style ); ?>">
 
             <?php if ( $o['demo'] ) : ?>
             <div class="edr-demo-banner">
@@ -314,6 +316,13 @@ class EDR_Driver_Display {
             $o['card_flip'] = false;
         }
 
+        // Max width — e.g. "1200px", "90%", or empty for full width
+        $raw_mw = trim( $atts['max_width'] );
+        if ( '' === $raw_mw && isset( $style_settings['max_width'] ) && '' !== trim( $style_settings['max_width'] ) ) {
+            $raw_mw = trim( $style_settings['max_width'] );
+        }
+        $o['max_width'] = $raw_mw;
+
         return $o;
     }
 
@@ -341,10 +350,22 @@ class EDR_Driver_Display {
         $radius  = isset( $style['border_radius'] ) ? intval( $style['border_radius'] ) : 10;
 
         $speed = max( 5, intval( $ticker_speed ) );
-        return sprintf(
+        $css = sprintf(
             '--edr-accent:%s;--edr-accent-dim:rgba(%s,0.18);--edr-accent-hover:rgba(%s,0.08);--edr-bg-card:%s;--edr-radius:%dpx;--edr-ticker-speed:%ds',
             esc_attr( $accent_hex ), $accent_rgb, $accent_rgb, esc_attr( $card_bg ), $radius, $speed
         );
+        return $css;
+    }
+
+    private function build_wrap_style( $inline_css, $max_width ) {
+        $style = $inline_css;
+        if ( '' !== $max_width ) {
+            $clean = preg_replace( '/[^0-9a-zA-Z%\.px]/', '', $max_width );
+            if ( $clean ) {
+                $style .= ';--edr-max-width:' . $clean;
+            }
+        }
+        return $style;
     }
 
     private function hex_to_rgb( $hex ) {
@@ -617,7 +638,7 @@ class EDR_Driver_Display {
                 $nat       = isset( $profile['nationality'] )  ? $profile['nationality'] : '';
                 $flag_code = isset( $profile['flag_code'] )   ? $profile['flag_code']   : '';
                 $flag      = $this->get_flag( $flag_code );
-                $tagline   = isset( $profile['tagline'] )     ? $profile['tagline']     : '';
+                $tagline   = isset( $profile['tagline'] )     ? wp_unslash( $profile['tagline'] ) : '';
                 $gear      = $this->get_gear_items( $profile );
 
                 $has_photo = $o['show_photo'] && ! empty( $photo );
@@ -696,11 +717,9 @@ class EDR_Driver_Display {
                                     <?php endif; ?>
                                     <?php if ( ! empty( $driver['safety_rating'] ) ) : ?>
                                         <?php $lic = isset( $driver['license_class'] ) ? intval( $driver['license_class'] ) : 0; ?>
-                                        <span class="edr-lic-badge <?php echo esc_attr( $this->license_css_class( $lic ) ); ?>">
-                                            <?php echo esc_html( $this->license_letter( $lic ) ); ?>
-                                        </span>
-                                        <span class="edr-sr-badge <?php echo esc_attr( $this->license_css_class( $lic ) ); ?>">
-                                            <?php echo esc_html( $driver['safety_rating'] ); ?> SR
+                                        <span class="edr-sr-lic-badge <?php echo esc_attr( $this->license_css_class( $lic ) ); ?>">
+                                            <span class="edr-sr-val"><?php echo esc_html( $driver['safety_rating'] ); ?></span>
+                                            <span class="edr-lic-letter"><?php echo esc_html( $this->license_letter( $lic ) ); ?></span>
                                         </span>
                                     <?php endif; ?>
                                 </div>
@@ -783,11 +802,9 @@ class EDR_Driver_Display {
                                 <?php echo $trend_html; ?>
                                 <?php if ( ! empty( $driver['safety_rating'] ) ) : ?>
                                     <?php $lic_back = isset( $driver['license_class'] ) ? intval( $driver['license_class'] ) : 0; ?>
-                                    <span class="edr-lic-badge <?php echo esc_attr( $this->license_css_class( $lic_back ) ); ?>">
-                                        <?php echo esc_html( $this->license_letter( $lic_back ) ); ?>
-                                    </span>
-                                    <span class="edr-sr-badge <?php echo esc_attr( $this->license_css_class( $lic_back ) ); ?>">
-                                        <?php echo esc_html( $driver['safety_rating'] ); ?> SR
+                                    <span class="edr-sr-lic-badge <?php echo esc_attr( $this->license_css_class( $lic_back ) ); ?>">
+                                        <span class="edr-sr-val"><?php echo esc_html( $driver['safety_rating'] ); ?></span>
+                                        <span class="edr-lic-letter"><?php echo esc_html( $this->license_letter( $lic_back ) ); ?></span>
                                     </span>
                                 <?php endif; ?>
                             </div>
@@ -899,11 +916,9 @@ class EDR_Driver_Display {
                         <td class="edr-col-sr">
                             <?php if ( ! empty( $driver['safety_rating'] ) ) : ?>
                                 <?php $lic_tbl = isset( $driver['license_class'] ) ? intval( $driver['license_class'] ) : 0; ?>
-                                <span class="edr-lic-badge <?php echo esc_attr( $this->license_css_class( $lic_tbl ) ); ?>">
-                                    <?php echo esc_html( $this->license_letter( $lic_tbl ) ); ?>
-                                </span>
-                                <span class="edr-sr-badge <?php echo esc_attr( $this->license_css_class( $lic_tbl ) ); ?>">
-                                    <?php echo esc_html( $driver['safety_rating'] ); ?>
+                                <span class="edr-sr-lic-badge <?php echo esc_attr( $this->license_css_class( $lic_tbl ) ); ?>">
+                                    <span class="edr-sr-val"><?php echo esc_html( $driver['safety_rating'] ); ?></span>
+                                    <span class="edr-lic-letter"><?php echo esc_html( $this->license_letter( $lic_tbl ) ); ?></span>
                                 </span>
                             <?php else : ?><span class="edr-na">&mdash;</span><?php endif; ?>
                         </td>
@@ -991,7 +1006,7 @@ class EDR_Driver_Display {
         $items = array();
         foreach ( $gear_map as $key => $label ) {
             if ( ! empty( $profile[ $key ] ) ) {
-                $items[ $label ] = $profile[ $key ];
+                $items[ $label ] = wp_unslash( $profile[ $key ] );
             }
         }
         return $items;

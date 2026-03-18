@@ -1,18 +1,21 @@
-/* Endurotech iRacing Drivers — Frontend JS v1.6 */
+/* Endurotech iRacing Drivers — Frontend JS v1.9 */
 (function () {
     'use strict';
 
+    var isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
     /* ----------------------------------------------------------------
-     * Animated stat counters
-     * Uses IntersectionObserver to trigger count-up when scrolled in.
-     * Elements must have data-counter="{target}" attribute.
+     * Animated stat counters — no comma formatting for iRating
      * ---------------------------------------------------------------- */
+    function formatCount(n) {
+        return String(n);
+    }
+
     function initCounters() {
         var els = document.querySelectorAll('[data-counter]');
         if ( ! els.length ) { return; }
 
         if ( ! ('IntersectionObserver' in window) ) {
-            // Fallback: just show the numbers
             els.forEach(function (el) {
                 el.classList.remove('edr-counter-init');
                 el.classList.add('edr-counter-done');
@@ -36,22 +39,20 @@
                     return;
                 }
 
-                var start    = 0;
-                var duration = Math.min(1200, Math.max(400, target * 0.2));
+                var duration  = Math.min(1200, Math.max(400, target * 0.2));
                 var startTime = null;
 
                 function step(timestamp) {
                     if ( ! startTime ) { startTime = timestamp; }
                     var elapsed  = timestamp - startTime;
                     var progress = Math.min(elapsed / duration, 1);
-                    // Ease-out cubic
                     var eased    = 1 - Math.pow(1 - progress, 3);
                     var current  = Math.round(eased * target);
-                    el.textContent = current.toLocaleString();
+                    el.textContent = formatCount(current);
                     if ( progress < 1 ) {
                         requestAnimationFrame(step);
                     } else {
-                        el.textContent = target.toLocaleString();
+                        el.textContent = formatCount(target);
                         el.classList.remove('edr-counter-init');
                         el.classList.add('edr-counter-done');
                     }
@@ -63,8 +64,38 @@
             });
         }, { threshold: 0.2 });
 
-        els.forEach(function (el) {
-            observer.observe(el);
+        els.forEach(function (el) { observer.observe(el); });
+    }
+
+    /* ----------------------------------------------------------------
+     * Mobile tap-to-flip for driver cards
+     * On touch devices, hover doesn't fire; we toggle .edr-flipped on tap.
+     * Tapping outside any card un-flips all cards.
+     * ---------------------------------------------------------------- */
+    function initMobileFlip() {
+        if ( ! isTouch ) { return; }
+
+        document.addEventListener('click', function (e) {
+            var card = e.target.closest('.edr-driver-card.edr-flippable');
+            if ( card ) {
+                var wasFlipped = card.classList.contains('edr-flipped');
+                // Unflip all cards in this grid
+                var grid = card.closest('.edr-cards-grid');
+                if ( grid ) {
+                    grid.querySelectorAll('.edr-driver-card.edr-flippable').forEach(function (c) {
+                        c.classList.remove('edr-flipped');
+                    });
+                }
+                if ( ! wasFlipped ) {
+                    card.classList.add('edr-flipped');
+                }
+                e.stopPropagation();
+            } else {
+                // Tapped outside — unflip all
+                document.querySelectorAll('.edr-driver-card.edr-flippable.edr-flipped').forEach(function (c) {
+                    c.classList.remove('edr-flipped');
+                });
+            }
         });
     }
 
@@ -81,32 +112,24 @@
             bar.addEventListener('click', function (e) {
                 var btn = e.target.closest('.edr-filter-btn');
                 if ( ! btn ) { return; }
-
                 var filter = btn.getAttribute('data-filter');
-
-                // Update active state
                 bar.querySelectorAll('.edr-filter-btn').forEach(function (b) {
                     b.classList.remove('edr-filter-active');
                 });
                 btn.classList.add('edr-filter-active');
-
-                // Show/hide cards
                 cards.forEach(function (card) {
-                    if ( filter === 'all' || card.getAttribute('data-role') === filter ) {
-                        card.style.display = '';
-                    } else {
-                        card.style.display = 'none';
-                    }
+                    card.style.display = ( filter === 'all' || card.getAttribute('data-role') === filter ) ? '' : 'none';
                 });
             });
         });
     }
 
     /* ----------------------------------------------------------------
-     * Init on DOM ready
+     * Init
      * ---------------------------------------------------------------- */
     function init() {
         initCounters();
+        initMobileFlip();
         initFilterBar();
     }
 

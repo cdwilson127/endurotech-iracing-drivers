@@ -22,12 +22,16 @@
     --edr-radius-sm:    0px;
     --edr-transition:   .2s ease;
     --edr-ticker-speed: 60s;
+    --edr-max-width:    100%;
     background:  var(--edr-bg);
     color:       var(--edr-text);
     font-family: 'Inter', 'Segoe UI', sans-serif;
     font-size:   16px;
     line-height: 1.75;
     padding:     0;
+    max-width:   var(--edr-max-width);
+    margin-left: auto;
+    margin-right: auto;
 }
 
 /* Preset accent overrides */
@@ -388,6 +392,15 @@
     overflow: hidden;
 }
 
+/* Mobile: tap-to-flip replaces hover */
+.edr-driver-card.edr-flippable.edr-flipped .edr-card-inner { transform: rotateY(180deg); }
+@media (hover: none) {
+    /* On touch devices hover doesn't fire — use .edr-flipped class toggled by JS */
+    .edr-driver-card.edr-flippable:hover .edr-card-inner { transform: none; }
+    .edr-driver-card.edr-flippable.edr-flipped .edr-card-inner { transform: rotateY(180deg); }
+    .edr-flip-hint::after { content: ' (tap to flip)'; }
+}
+
 /* ----------------------------------------------------------
    Card top — photo + identity
    ---------------------------------------------------------- */
@@ -520,29 +533,45 @@
     border-radius:  0;
     letter-spacing: .04em;
 }
+/* Combined SR + license badge — e.g. "4.6 B" */
+.edr-sr-lic-badge {
+    display:        inline-flex;
+    align-items:    center;
+    gap:            0;
+    font-size:      .75rem;
+    font-weight:    800;
+    border-radius:  3px;
+    overflow:       hidden;
+    letter-spacing: .02em;
+    line-height:    1;
+}
+.edr-sr-lic-badge .edr-sr-val {
+    padding: 3px 7px;
+    opacity: .92;
+}
+.edr-sr-lic-badge .edr-lic-letter {
+    padding:    3px 6px 3px 4px;
+    font-weight: 900;
+    font-size:  .7rem;
+    opacity:    1;
+    border-left: 1px solid rgba(0,0,0,.2);
+}
+/* iRacing license class colours — solid fill like iRacing UI */
+.edr-lic-r   { background: #c0392b; color: #fff; }
+.edr-lic-d   { background: #e67e22; color: #fff; }
+.edr-lic-c   { background: #d4ac0d; color: #111; }
+.edr-lic-b   { background: #27ae60; color: #fff; }
+.edr-lic-a   { background: #2980b9; color: #fff; }
+.edr-lic-pro { background: #7f8c8d; color: #fff; }
+
+/* Legacy (table view still uses standalone badge) */
 .edr-sr-badge {
     font-size:      .72rem;
     font-weight:    700;
     padding:        2px 8px;
-    border-radius:  0;
+    border-radius:  3px;
     letter-spacing: .03em;
 }
-.edr-lic-badge {
-    font-size:      .68rem;
-    font-weight:    800;
-    padding:        2px 6px;
-    border-radius:  0;
-    letter-spacing: .02em;
-    margin-right:   2px;
-    text-transform: uppercase;
-}
-/* iRacing license class colours */
-.edr-lic-r  { background: rgba(183,28,28,.18);  color: #ef5350; border: 1px solid rgba(183,28,28,.45);  }
-.edr-lic-d  { background: rgba(255,109,0,.15);  color: #ff9100; border: 1px solid rgba(255,109,0,.40);  }
-.edr-lic-c  { background: rgba(255,214,0,.14);  color: #ffd600; border: 1px solid rgba(255,214,0,.38);  }
-.edr-lic-b  { background: rgba(0,200,83,.14);   color: #00e676; border: 1px solid rgba(0,200,83,.40);   }
-.edr-lic-a  { background: rgba(41,98,255,.14);  color: #448aff; border: 1px solid rgba(41,98,255,.40);  }
-.edr-lic-pro { background: rgba(200,200,200,.1); color: #e0e0e0; border: 1px solid rgba(200,200,200,.3); }
 
 /* iRating trend badge */
 .edr-trend {

@@ -152,6 +152,7 @@ class EDR_Admin_Settings {
             'accent_color'  => array( 'Accent Colour',      'color',  '#f0f000',  'Card borders, badges, and highlights.' ),
             'card_bg'       => array( 'Card Background',    'color',  '#111111',  'Background colour for individual driver cards.' ),
             'border_radius' => array( 'Border Radius (px)', 'number', '0',        'Rounded corners on cards (0 = sharp, matches site style).' ),
+            'max_width'     => array( 'Max Width',          'text',   '',         'Max width of the whole section, e.g. 1200px or 90%. Leave blank for full width.' ),
             'subtitle_text' => array( 'Subtitle Text',      'text',   '',         'Custom text below the heading. Leave blank for the default. Type "none" to hide it entirely.' ),
             'ticker_speed'  => array( 'Ticker Speed (seconds)', 'ticker_speed', '60', 'How many seconds for one full scroll cycle. Higher = slower. Default 60.' ),
         );
@@ -229,6 +230,8 @@ class EDR_Admin_Settings {
         $out['border_radius'] = min( 30, max( 0, absint( isset( $input['border_radius'] ) ? $input['border_radius'] : 10 ) ) );
         $out['subtitle_text'] = sanitize_text_field( isset( $input['subtitle_text'] ) ? $input['subtitle_text'] : '' );
         $out['ticker_speed']  = min( 300, max( 5, absint( isset( $input['ticker_speed'] ) ? $input['ticker_speed'] : 60 ) ) );
+        $raw_mw = isset( $input['max_width'] ) ? trim( $input['max_width'] ) : '';
+        $out['max_width'] = preg_replace( '/[^0-9a-zA-Z%\.px]/', '', $raw_mw );
 
         return $out;
     }
