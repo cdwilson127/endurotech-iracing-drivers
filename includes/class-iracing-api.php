@@ -12,8 +12,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class EDR_IRacing_API {
 
-    private const OAUTH_URL    = 'https://oauth.iracing.com/oauth2/token';
-    private const DATA_API_URL = 'https://members-ng.iracing.com/data';
+    private static $OAUTH_URL    = 'https://oauth.iracing.com/oauth2/token';
+    private static $DATA_API_URL = 'https://members-ng.iracing.com/data';
 
     private $client_id     = '';
     private $client_secret = '';
@@ -47,7 +47,7 @@ class EDR_IRacing_API {
         $hashed_password = $this->hash_value( $this->password, $this->username );
         $hashed_secret   = $this->hash_value( $this->client_secret, $this->client_id );
 
-        $response = wp_remote_post( self::OAUTH_URL, array(
+        $response = wp_remote_post( self::$OAUTH_URL, array(
             'timeout' => 30,
             'headers' => array( 'Content-Type' => 'application/x-www-form-urlencoded' ),
             'body'    => http_build_query( array(
@@ -92,7 +92,7 @@ class EDR_IRacing_API {
             return null;
         }
 
-        $url = self::DATA_API_URL . $endpoint;
+        $url = self::$DATA_API_URL . $endpoint;
         if ( $query ) {
             $url .= '?' . http_build_query( $query );
         }
