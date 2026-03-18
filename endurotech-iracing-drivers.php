@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Endurotech iRacing Drivers
  * Description: Displays iRacing driver stats for the Endurotech Racing team via the [iracing_drivers] shortcode.
- * Version: 1.6.4
+ * Version: 1.7.0
  * Author: Endurotech Racing
  * License: GPL v2 or later
  * Text Domain: endurotech-iracing
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'EDR_IRACING_VERSION', '1.6.4' );
+define( 'EDR_IRACING_VERSION', '1.7.0' );
 define( 'EDR_IRACING_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'EDR_IRACING_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
