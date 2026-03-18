@@ -120,7 +120,9 @@ class EDR_Driver_Display {
 
         $api_lookup = array();
         foreach ( $api_cache as $ad ) {
-            $api_lookup[ intval( $ad['cust_id'] ) ] = $ad;
+            if ( isset( $ad['cust_id'] ) && $ad['cust_id'] ) {
+                $api_lookup[ intval( $ad['cust_id'] ) ] = $ad;
+            }
         }
         unset( $api_cache );
 

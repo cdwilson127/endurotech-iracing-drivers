@@ -131,7 +131,10 @@ class EDR_IRacing_API {
             return $result;
         }
 
-        if ( ! empty( $body['data']['chunk_info'] ) ) {
+        if ( ! empty( $body['data']['chunk_info'] )
+             && isset( $body['data']['chunk_info']['base_download_url'] )
+             && isset( $body['data']['chunk_info']['chunk_file_names'] )
+             && is_array( $body['data']['chunk_info']['chunk_file_names'] ) ) {
             $base_url    = $body['data']['chunk_info']['base_download_url'];
             $chunk_names = $body['data']['chunk_info']['chunk_file_names'];
             unset( $body );
@@ -196,7 +199,6 @@ class EDR_IRacing_API {
         unset( $team );
 
         // Large rosters make many sequential HTTP requests — extend execution time.
-        $original_limit = ini_get( 'max_execution_time' );
         set_time_limit( 300 );
 
         $drivers = array();

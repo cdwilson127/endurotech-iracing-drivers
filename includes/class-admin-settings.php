@@ -286,7 +286,7 @@ class EDR_Admin_Settings {
                             $api_data   = array();
                             if ( $cust_id && ! empty( $api_cache ) ) {
                                 foreach ( $api_cache as $ad ) {
-                                    if ( intval( $ad['cust_id'] ) === intval( $cust_id ) ) {
+                                    if ( isset( $ad['cust_id'] ) && intval( $ad['cust_id'] ) === intval( $cust_id ) ) {
                                         $api_linked = true;
                                         $api_data   = $ad;
                                         break;
