@@ -853,7 +853,7 @@ class EDR_Admin_Settings {
 
     /**
      * AJAX: fetch stats for a single driver and return diagnostic JSON.
-     * Shows raw API data so we can see exactly what iRacing returns.
+     * Dumps raw API field names so we can discover the correct keys.
      */
     public function ajax_fetch_single_driver() {
         if ( ! current_user_can( 'manage_options' ) ) {
@@ -873,60 +873,46 @@ class EDR_Admin_Settings {
 
         $result = array( 'cust_id' => $cust_id );
 
-        // 1. Member profile (licenses → iRating + SR)
+        // 1. /member/get — dump all top-level keys so we can see what's available
         $member_data = $api->get_member_info( $cust_id );
-        $result['member_get_raw'] = $member_data;
-
-        $sc_license = null;
-        if ( ! empty( $member_data['members'] ) && is_array( $member_data['members'] ) ) {
-            $m = $member_data['members'][0];
-            if ( ! empty( $m['licenses'] ) && is_array( $m['licenses'] ) ) {
-                $result['all_licenses'] = array();
-                foreach ( $m['licenses'] as $lic ) {
-                    $cat_id   = intval( isset( $lic['category_id'] ) ? $lic['category_id'] : 0 );
-                    $cat_name = isset( $lic['category'] ) ? $lic['category'] : 'unknown';
-                    $ir       = isset( $lic['irating'] ) ? $lic['irating'] : ( isset( $lic['i_rating'] ) ? $lic['i_rating'] : 'n/a' );
-                    $sr       = isset( $lic['safety_rating'] ) ? $lic['safety_rating'] : ( isset( $lic['sub_level'] ) ? $lic['sub_level'] : 'n/a' );
-                    $result['all_licenses'][] = array(
-                        'category_id'   => $cat_id,
-                        'category_name' => $cat_name,
-                        'irating'       => $ir,
-                        'safety_rating' => $sr,
-                    );
-                    if ( 5 === $cat_id ) {
-                        $sc_license = $lic;
-                    }
+        if ( is_array( $member_data ) ) {
+            $result['member_get_keys'] = array_keys( $member_data );
+            if ( ! empty( $member_data['members'] ) && is_array( $member_data['members'] ) ) {
+                $m = $member_data['members'][0];
+                $result['member_keys'] = array_keys( $m );
+                if ( ! empty( $m['licenses'] ) && is_array( $m['licenses'] ) ) {
+                    $result['license_sample'] = $m['licenses'][0];
                 }
             }
-        }
-
-        if ( $sc_license ) {
-            $ir_val = isset( $sc_license['irating'] ) ? $sc_license['irating'] : ( isset( $sc_license['i_rating'] ) ? $sc_license['i_rating'] : null );
-            $sr_val = isset( $sc_license['safety_rating'] ) ? $sc_license['safety_rating'] : ( isset( $sc_license['sub_level'] ) ? $sc_license['sub_level'] : null );
-            $result['sports_car_irating']       = $ir_val;
-            $result['sports_car_safety_rating'] = $sr_val;
         } else {
-            $result['sports_car_irating']       = null;
-            $result['sports_car_safety_rating'] = null;
-            $result['warning'] = 'No Sports Car (category_id=5) license found in /member/get response.';
+            $result['member_get_keys'] = 'null or not array';
         }
+        unset( $member_data );
 
-        // 2. Career stats
+        // 2. Career stats — dump keys
         $career = $api->get_member_career_stats( $cust_id );
-        $result['career_stats_raw'] = $career;
+        if ( ! empty( $career['stats'] ) && is_array( $career['stats'] ) ) {
+            $result['career_stats_count'] = count( $career['stats'] );
+            $result['career_first_entry'] = $career['stats'][0];
+        }
+        unset( $career );
 
-        // 3. Recent races (first 5 only for display)
+        // 3. Recent races — dump ALL keys from the first race so we find the category field
         $recent = $api->get_member_recent_races( $cust_id );
         if ( ! empty( $recent['races'] ) && is_array( $recent['races'] ) ) {
             $result['recent_races_count'] = count( $recent['races'] );
-            $result['recent_races_first5'] = array_slice( $recent['races'], 0, 5 );
+            $first = $recent['races'][0];
+            $result['race_all_keys'] = array_keys( $first );
+            $result['race_first_raw'] = $first;
+            $result['recent_races_first3'] = array_slice( $recent['races'], 0, 3 );
         } else {
-            $result['recent_races_count']  = 0;
-            $result['recent_races_first5'] = array();
+            $result['recent_races_count'] = 0;
+            $result['race_all_keys']      = array();
+            $result['recent_top_keys']    = is_array( $recent ) ? array_keys( $recent ) : 'null';
         }
+        unset( $recent );
 
         unset( $api );
-
         wp_send_json_success( $result );
     }
 

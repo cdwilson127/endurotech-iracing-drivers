@@ -108,54 +108,36 @@
             }
 
             var d = resp.data;
-            var html = '<div style="background:#f9f9f9;border:1px solid #ddd;padding:12px 16px;margin:8px 0 12px;font-size:12px;font-family:monospace;max-height:400px;overflow:auto">';
+            var css = 'background:#f9f9f9;border:1px solid #ddd;padding:12px 16px;margin:8px 0 12px;font-size:11px;font-family:monospace;max-height:500px;overflow:auto;white-space:pre-wrap;word-break:break-all';
+            var html = '<div style="' + css + '">';
 
-            // Sports Car iRating + SR
-            html += '<strong>Sports Car iRating:</strong> ' + (d.sports_car_irating !== null ? '<span style="color:#0a7227;font-weight:bold">' + d.sports_car_irating + '</span>' : '<span style="color:#b32d2e">NOT FOUND</span>') + '<br>';
-            html += '<strong>Sports Car Safety Rating:</strong> ' + (d.sports_car_safety_rating !== null ? d.sports_car_safety_rating : 'NOT FOUND') + '<br>';
-
-            if (d.warning) {
-                html += '<br><span style="color:#b32d2e;font-weight:bold">' + d.warning + '</span><br>';
+            html += '<strong style="font-size:13px">/member/get response:</strong><br>';
+            if (d.member_get_keys) {
+                html += 'Top-level keys: ' + JSON.stringify(d.member_get_keys) + '<br>';
             }
-
-            // All licenses
-            if (d.all_licenses && d.all_licenses.length) {
-                html += '<br><strong>All licenses returned by /member/get:</strong><br>';
-                html += '<table style="border-collapse:collapse;font-size:11px;margin:4px 0 8px"><tr style="background:#eee"><th style="padding:3px 8px;border:1px solid #ccc">Cat ID</th><th style="padding:3px 8px;border:1px solid #ccc">Category</th><th style="padding:3px 8px;border:1px solid #ccc">iRating</th><th style="padding:3px 8px;border:1px solid #ccc">SR</th></tr>';
-                for (var i = 0; i < d.all_licenses.length; i++) {
-                    var lic = d.all_licenses[i];
-                    var isSC = (lic.category_id === 5) ? ' style="background:#ffe;font-weight:bold"' : '';
-                    html += '<tr' + isSC + '><td style="padding:3px 8px;border:1px solid #ccc">' + lic.category_id + '</td><td style="padding:3px 8px;border:1px solid #ccc">' + lic.category_name + '</td><td style="padding:3px 8px;border:1px solid #ccc">' + lic.irating + '</td><td style="padding:3px 8px;border:1px solid #ccc">' + lic.safety_rating + '</td></tr>';
-                }
-                html += '</table>';
+            if (d.member_keys) {
+                html += 'Member object keys: ' + JSON.stringify(d.member_keys) + '<br>';
+            }
+            if (d.license_sample) {
+                html += '<span style="color:#0a7227">License sample: ' + JSON.stringify(d.license_sample) + '</span><br>';
             } else {
-                html += '<br><span style="color:#b32d2e">No licenses array returned by /member/get — the endpoint may not support this field.</span><br>';
+                html += '<span style="color:#b32d2e">No licenses array in member data.</span><br>';
             }
 
-            // Recent races
-            html += '<strong>Recent races returned:</strong> ' + d.recent_races_count + '<br>';
-            if (d.recent_races_first5 && d.recent_races_first5.length) {
-                html += '<strong>First 5 (newest first):</strong><br>';
-                for (var j = 0; j < d.recent_races_first5.length; j++) {
-                    var r = d.recent_races_first5[j];
-                    html += '&nbsp;&nbsp;cat_id=' + (r.category_id || '?') + ' | newi_rating=' + (r.newi_rating !== undefined ? r.newi_rating : '?') + ' | series=' + (r.series_name || '?') + '<br>';
-                }
+            html += '<br><strong style="font-size:13px">Career stats:</strong><br>';
+            if (d.career_first_entry) {
+                html += 'First entry: ' + JSON.stringify(d.career_first_entry) + '<br>';
+            }
+
+            html += '<br><strong style="font-size:13px">Recent races (' + (d.recent_races_count || 0) + ' total):</strong><br>';
+            if (d.race_all_keys && d.race_all_keys.length) {
+                html += '<span style="color:#0a7227;font-weight:bold">ALL KEYS on race object: ' + JSON.stringify(d.race_all_keys) + '</span><br><br>';
+            }
+            if (d.race_first_raw) {
+                html += '<strong>Full first race (raw JSON):</strong><br>' + JSON.stringify(d.race_first_raw, null, 2) + '<br>';
             }
 
             html += '</div>';
-
-            // Auto-fill placeholders with fetched SC values if fields are empty
-            if (d.sports_car_irating !== null) {
-                var $ir = $('#stat-' + driverId + '-irating');
-                if ($ir.length && $ir.val() === '') { $ir.attr('placeholder', 'API: ' + d.sports_car_irating); }
-            }
-            if (d.sports_car_safety_rating !== null) {
-                var srDisplay = d.sports_car_safety_rating;
-                if (typeof srDisplay === 'number' && srDisplay > 10) { srDisplay = (srDisplay / 100).toFixed(2); }
-                var $sr = $('#stat-' + driverId + '-safety_rating');
-                if ($sr.length && $sr.val() === '') { $sr.attr('placeholder', 'API: ' + srDisplay); }
-            }
-
             $result.html(html);
         }).fail(function () {
             $btn.prop('disabled', false).text('Fetch Stats from iRacing');
