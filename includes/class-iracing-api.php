@@ -324,6 +324,7 @@ class EDR_IRacing_API {
         usort( $drivers, array( $this, 'sort_by_irating_desc' ) );
 
         set_transient( 'edr_iracing_drivers_cache', $drivers, $cache_hours * HOUR_IN_SECONDS );
+        update_option( 'edr_iracing_api_snapshot', $drivers, false );
 
         return $drivers;
     }

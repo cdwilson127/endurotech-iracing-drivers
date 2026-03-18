@@ -360,6 +360,9 @@ class EDR_Admin_Settings {
 
         $api_configured = $this->is_api_configured();
         $api_cache      = get_transient( 'edr_iracing_drivers_cache' );
+        if ( ! is_array( $api_cache ) || empty( $api_cache ) ) {
+            $api_cache = get_option( 'edr_iracing_api_snapshot', array() );
+        }
         if ( ! is_array( $api_cache ) ) { $api_cache = array(); }
 
         $role_options = array(

@@ -151,6 +151,27 @@ class EDR_Driver_Display {
         if ( ! is_array( $profiles ) ) { $profiles = array(); }
 
         $api_cache = get_transient( 'edr_iracing_drivers_cache' );
+
+        if ( false === $api_cache && ! get_transient( 'edr_iracing_refresh_lock' ) ) {
+            set_transient( 'edr_iracing_refresh_lock', 1, 60 );
+            $api = new EDR_IRacing_API();
+            if ( $api->is_configured() ) {
+                $fresh = $api->get_all_driver_data();
+                if ( is_array( $fresh ) && ! empty( $fresh ) ) {
+                    $api_cache = $fresh;
+                }
+            }
+            unset( $api );
+            delete_transient( 'edr_iracing_refresh_lock' );
+        }
+
+        if ( ! is_array( $api_cache ) || empty( $api_cache ) ) {
+            $snapshot = get_option( 'edr_iracing_api_snapshot', array() );
+            if ( is_array( $snapshot ) && ! empty( $snapshot ) ) {
+                $api_cache = $snapshot;
+            }
+        }
+
         if ( ! is_array( $api_cache ) ) { $api_cache = array(); }
 
         $api_lookup = array();
