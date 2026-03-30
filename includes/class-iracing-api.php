@@ -174,6 +174,8 @@ class EDR_IRacing_API {
     /**
      * iRacing returns a JSON envelope with a `link` to a pre-signed S3 URL
      * where the real payload lives. Some endpoints use chunk_info instead.
+     *
+     * Retries up to 3 times on 405 or 5xx. Re-authenticates once on 401.
      */
     private function api_request( $endpoint, $query = array() ) {
         // Small delay before each API call to avoid bursting.
@@ -189,41 +191,55 @@ class EDR_IRacing_API {
             $url .= '?' . http_build_query( $query );
         }
 
-        $response = wp_remote_get( $url, array(
-            'timeout' => 30,
-            'headers' => array( 'Authorization' => 'Bearer ' . $token ),
-        ) );
+        $max_retries   = 3;
+        $response      = null;
+        $status_code   = 0;
+        $reauthed_once = false;
 
-        if ( is_wp_error( $response ) ) {
-            $this->last_error = 'API error on ' . $endpoint . ': ' . $response->get_error_message();
-            error_log( 'EDR iRacing: ' . $this->last_error );
-            return null;
-        }
-
-        $status_code = intval( wp_remote_retrieve_response_code( $response ) );
-
-        // If we get a 401, token may have expired — clear it and retry once.
-        if ( 401 === $status_code ) {
-            delete_transient( 'edr_iracing_token' );
-            $token = $this->get_access_token();
-            if ( ! $token ) {
-                return null;
-            }
-
+        for ( $attempt = 1; $attempt <= $max_retries; $attempt++ ) {
             $response = wp_remote_get( $url, array(
                 'timeout' => 30,
                 'headers' => array( 'Authorization' => 'Bearer ' . $token ),
             ) );
 
             if ( is_wp_error( $response ) ) {
-                return null;
+                $this->last_error = 'API error on ' . $endpoint . ' (attempt ' . $attempt . '): ' . $response->get_error_message();
+                error_log( 'EDR iRacing: ' . $this->last_error );
+                if ( $attempt < $max_retries ) { sleep( 2 ); }
+                continue;
             }
+
             $status_code = intval( wp_remote_retrieve_response_code( $response ) );
+
+            // 401 — token expired. Re-auth once and retry immediately (don't burn a retry slot).
+            if ( 401 === $status_code && ! $reauthed_once ) {
+                $reauthed_once = true;
+                delete_transient( 'edr_iracing_token' );
+                $token = $this->get_access_token();
+                if ( ! $token ) {
+                    return null;
+                }
+                $attempt--;
+                continue;
+            }
+
+            // 405 or 5xx — intermittent from iRacing nginx, retry with delay.
+            if ( 405 === $status_code || $status_code >= 500 ) {
+                $this->last_error = 'API HTTP ' . $status_code . ' on ' . $endpoint . ' (attempt ' . $attempt . ')';
+                error_log( 'EDR iRacing: ' . $this->last_error );
+                if ( $attempt < $max_retries ) { sleep( 2 ); }
+                continue;
+            }
+
+            // Any other non-2xx is a hard failure.
+            break;
         }
 
-        if ( $status_code < 200 || $status_code >= 300 ) {
-            $this->last_error = 'API HTTP ' . $status_code . ' on ' . $endpoint . ': ' . wp_remote_retrieve_body( $response );
-            error_log( 'EDR iRacing: ' . $this->last_error );
+        if ( is_wp_error( $response ) || $status_code < 200 || $status_code >= 300 ) {
+            if ( ! is_wp_error( $response ) ) {
+                $this->last_error = 'API HTTP ' . $status_code . ' on ' . $endpoint . ': ' . wp_remote_retrieve_body( $response );
+                error_log( 'EDR iRacing: ' . $this->last_error );
+            }
             return null;
         }
 
