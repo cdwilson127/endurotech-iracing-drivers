@@ -65,6 +65,12 @@ class EDR_IRacing_API {
             return null;
         }
 
+        $oauth_status = intval( wp_remote_retrieve_response_code( $response ) );
+        if ( $oauth_status < 200 || $oauth_status >= 300 ) {
+            error_log( 'EDR iRacing: OAuth HTTP ' . $oauth_status . ' - ' . wp_remote_retrieve_body( $response ) );
+            return null;
+        }
+
         $body = json_decode( wp_remote_retrieve_body( $response ), true );
         unset( $response );
 
@@ -104,6 +110,33 @@ class EDR_IRacing_API {
 
         if ( is_wp_error( $response ) ) {
             error_log( 'EDR iRacing: API error - ' . $response->get_error_message() );
+            return null;
+        }
+
+        $status_code = intval( wp_remote_retrieve_response_code( $response ) );
+
+        // If the endpoint rejects GET, retry with POST.
+        if ( 405 === $status_code ) {
+            error_log( 'EDR iRacing: 405 on GET ' . $endpoint . ', retrying with POST.' );
+            $post_url = self::$DATA_API_URL . $endpoint;
+            $response = wp_remote_post( $post_url, array(
+                'timeout' => 30,
+                'headers' => array(
+                    'Authorization' => 'Bearer ' . $token,
+                    'Content-Type'  => 'application/json',
+                ),
+                'body'    => wp_json_encode( $query ),
+            ) );
+
+            if ( is_wp_error( $response ) ) {
+                error_log( 'EDR iRacing: POST retry error - ' . $response->get_error_message() );
+                return null;
+            }
+            $status_code = intval( wp_remote_retrieve_response_code( $response ) );
+        }
+
+        if ( $status_code < 200 || $status_code >= 300 ) {
+            error_log( 'EDR iRacing: HTTP ' . $status_code . ' on ' . $endpoint );
             return null;
         }
 
