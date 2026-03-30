@@ -127,6 +127,9 @@ class EDR_IRacing_API {
      * where the real payload lives. Some endpoints use chunk_info instead.
      */
     private function api_request( $endpoint, $query = array() ) {
+        // Small delay before each API call to avoid bursting.
+        usleep( 500000 ); // 0.5 seconds
+
         $token = $this->get_access_token();
         if ( ! $token ) {
             return null;
@@ -295,10 +298,8 @@ class EDR_IRacing_API {
 
         @set_time_limit( 300 );
 
-        $drivers     = array();
-        $batch_size  = 5;
-        $batch_pause = 2;
-        $count       = 0;
+        $drivers = array();
+        $count   = 0;
 
         foreach ( $roster as $member ) {
             $cust_id = intval( $member['cust_id'] );
@@ -307,9 +308,11 @@ class EDR_IRacing_API {
             }
             $name = isset( $member['display_name'] ) ? $member['display_name'] : 'Unknown';
 
+            // Pause 3 seconds between each driver to avoid hammering the API.
+            // Each driver makes 4 API calls, so this keeps us well under rate limits.
             $count++;
-            if ( $count > 1 && 0 === ( $count - 1 ) % $batch_size ) {
-                sleep( $batch_pause );
+            if ( $count > 1 ) {
+                sleep( 3 );
             }
 
             try {
