@@ -48,8 +48,13 @@ class EDR_IRacing_API {
 
     /**
      * Obtain an OAuth2 access token.
-     * Retries up to 3 times with a 2-second delay to handle the intermittent
-     * 405 responses from the iRacing OAuth endpoint.
+     *
+     * Strategy (reduces 405s by minimising password_limited calls):
+     * 1. Return the cached access token if still valid.
+     * 2. If a refresh token is cached, use it to silently renew the session.
+     * 3. Only fall back to the password_limited grant as a last resort.
+     *
+     * Retries up to 3 times with a 2-second delay on 405/5xx responses.
      */
     private function get_access_token() {
         $cached = get_transient( 'edr_iracing_token' );
@@ -57,23 +62,49 @@ class EDR_IRacing_API {
             return $cached;
         }
 
-        $hashed_password = $this->hash_value( $this->password, $this->username );
-        $hashed_secret   = $this->hash_value( $this->client_secret, $this->client_id );
+        // Try refresh token first — avoids hitting password_limited again.
+        $refresh_token = get_transient( 'edr_iracing_refresh_token' );
+        if ( $refresh_token ) {
+            $token = $this->fetch_token_with_body( array(
+                'grant_type'    => 'refresh_token',
+                'client_id'     => $this->client_id,
+                'client_secret' => $this->hash_value( $this->client_secret, $this->client_id ),
+                'refresh_token' => $refresh_token,
+            ) );
+            if ( $token ) {
+                return $token;
+            }
+            // Refresh failed (token may have expired) — clear it and fall through.
+            delete_transient( 'edr_iracing_refresh_token' );
+        }
 
+        // Last resort: full password_limited grant.
+        return $this->fetch_token_with_body( array(
+            'grant_type'    => 'password_limited',
+            'client_id'     => $this->client_id,
+            'client_secret' => $this->hash_value( $this->client_secret, $this->client_id ),
+            'username'      => $this->username,
+            'password'      => $this->hash_value( $this->password, $this->username ),
+            'scope'         => 'iracing.auth',
+        ) );
+    }
+
+    /**
+     * POST to the OAuth token endpoint with the given body params.
+     * Retries up to 3 times on 405 or 5xx. Honours Retry-After on 400.
+     * Stores both access_token and refresh_token transients on success.
+     *
+     * @param array $body URL-encoded body parameters.
+     * @return string|null Access token on success, null on failure.
+     */
+    private function fetch_token_with_body( $body ) {
         $max_retries = 3;
 
         for ( $attempt = 1; $attempt <= $max_retries; $attempt++ ) {
             $response = wp_remote_post( self::$OAUTH_URL, array(
                 'timeout' => 30,
                 'headers' => array( 'Content-Type' => 'application/x-www-form-urlencoded' ),
-                'body'    => http_build_query( array(
-                    'grant_type'    => 'password_limited',
-                    'client_id'     => $this->client_id,
-                    'client_secret' => $hashed_secret,
-                    'username'      => $this->username,
-                    'password'      => $hashed_password,
-                    'scope'         => 'iracing.auth',
-                ) ),
+                'body'    => http_build_query( $body ),
             ) );
 
             if ( is_wp_error( $response ) ) {
@@ -86,7 +117,19 @@ class EDR_IRacing_API {
             $status   = intval( wp_remote_retrieve_response_code( $response ) );
             $raw_body = wp_remote_retrieve_body( $response );
 
-            // Retry on 405 or 5xx — these are intermittent issues from iRacing.
+            // 400 can mean rate-limited; respect Retry-After if present.
+            if ( 400 === $status ) {
+                $retry_after = intval( wp_remote_retrieve_header( $response, 'retry-after' ) );
+                if ( $retry_after > 0 && $attempt < $max_retries ) {
+                    sleep( min( $retry_after, 30 ) );
+                    continue;
+                }
+                $this->last_error = 'OAuth HTTP 400: ' . $raw_body;
+                error_log( 'EDR iRacing: ' . $this->last_error );
+                return null;
+            }
+
+            // 405 or 5xx — intermittent nginx issues from iRacing, retry.
             if ( 405 === $status || $status >= 500 ) {
                 $this->last_error = 'OAuth HTTP ' . $status . ' (attempt ' . $attempt . '/' . $max_retries . '): ' . $raw_body;
                 error_log( 'EDR iRacing: ' . $this->last_error );
@@ -100,20 +143,26 @@ class EDR_IRacing_API {
                 return null;
             }
 
-            $body = json_decode( $raw_body, true );
+            $data = json_decode( $raw_body, true );
             unset( $response, $raw_body );
 
-            if ( empty( $body['access_token'] ) ) {
-                $this->last_error = 'OAuth response missing access_token: ' . wp_json_encode( $body );
+            if ( empty( $data['access_token'] ) ) {
+                $this->last_error = 'OAuth response missing access_token: ' . wp_json_encode( $data );
                 error_log( 'EDR iRacing: ' . $this->last_error );
                 return null;
             }
 
-            $expires = max( ( intval( isset( $body['expires_in'] ) ? $body['expires_in'] : 3600 ) ) - 120, 60 );
-            set_transient( 'edr_iracing_token', $body['access_token'], $expires );
+            // Cache access token (shave 120 s off to avoid using an expiring token).
+            $access_expires = max( intval( isset( $data['expires_in'] ) ? $data['expires_in'] : 600 ) - 120, 60 );
+            set_transient( 'edr_iracing_token', $data['access_token'], $access_expires );
 
-            $token = $body['access_token'];
-            unset( $body );
+            // Cache refresh token for up to 6 days (iRacing says 7-day single-use).
+            if ( ! empty( $data['refresh_token'] ) ) {
+                set_transient( 'edr_iracing_refresh_token', $data['refresh_token'], 6 * DAY_IN_SECONDS );
+            }
+
+            $token = $data['access_token'];
+            unset( $data );
 
             return $token;
         }

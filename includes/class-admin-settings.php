@@ -838,8 +838,9 @@ class EDR_Admin_Settings {
         }
 
         $api     = new EDR_IRacing_API();
-        // Clear any cached token so we get a fresh auth attempt.
+        // Clear any cached tokens so we get a fresh auth attempt.
         delete_transient( 'edr_iracing_token' );
+        delete_transient( 'edr_iracing_refresh_token' );
         $drivers = $api->get_all_driver_data();
 
         if ( empty( $drivers ) || ! is_array( $drivers ) ) {

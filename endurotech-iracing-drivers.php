@@ -43,6 +43,7 @@ function edr_iracing_deactivate() {
     wp_clear_scheduled_hook( 'edr_cron_sync_drivers' );
     delete_transient( 'edr_iracing_drivers_cache' );
     delete_transient( 'edr_iracing_token' );
+    delete_transient( 'edr_iracing_refresh_token' );
 }
 
 /**
