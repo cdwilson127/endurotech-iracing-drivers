@@ -46,6 +46,11 @@ class EDR_IRacing_API {
         return base64_encode( hash( 'sha256', $value . strtolower( $salt ), true ) );
     }
 
+    /**
+     * Obtain an OAuth2 access token.
+     * Retries up to 3 times with a 2-second delay to handle the intermittent
+     * 405 responses from the iRacing OAuth endpoint.
+     */
     private function get_access_token() {
         $cached = get_transient( 'edr_iracing_token' );
         if ( $cached ) {
@@ -55,50 +60,66 @@ class EDR_IRacing_API {
         $hashed_password = $this->hash_value( $this->password, $this->username );
         $hashed_secret   = $this->hash_value( $this->client_secret, $this->client_id );
 
-        $response = wp_remote_post( self::$OAUTH_URL, array(
-            'timeout' => 30,
-            'headers' => array( 'Content-Type' => 'application/x-www-form-urlencoded' ),
-            'body'    => http_build_query( array(
-                'grant_type'    => 'password_limited',
-                'client_id'     => $this->client_id,
-                'client_secret' => $hashed_secret,
-                'username'      => $this->username,
-                'password'      => $hashed_password,
-                'scope'         => 'iracing.auth',
-            ) ),
-        ) );
+        $max_retries = 3;
 
-        if ( is_wp_error( $response ) ) {
-            $this->last_error = 'OAuth connection error: ' . $response->get_error_message();
-            error_log( 'EDR iRacing: ' . $this->last_error );
-            return null;
+        for ( $attempt = 1; $attempt <= $max_retries; $attempt++ ) {
+            $response = wp_remote_post( self::$OAUTH_URL, array(
+                'timeout' => 30,
+                'headers' => array( 'Content-Type' => 'application/x-www-form-urlencoded' ),
+                'body'    => http_build_query( array(
+                    'grant_type'    => 'password_limited',
+                    'client_id'     => $this->client_id,
+                    'client_secret' => $hashed_secret,
+                    'username'      => $this->username,
+                    'password'      => $hashed_password,
+                    'scope'         => 'iracing.auth',
+                ) ),
+            ) );
+
+            if ( is_wp_error( $response ) ) {
+                $this->last_error = 'OAuth connection error (attempt ' . $attempt . '/' . $max_retries . '): ' . $response->get_error_message();
+                error_log( 'EDR iRacing: ' . $this->last_error );
+                if ( $attempt < $max_retries ) { sleep( 2 ); }
+                continue;
+            }
+
+            $status   = intval( wp_remote_retrieve_response_code( $response ) );
+            $raw_body = wp_remote_retrieve_body( $response );
+
+            // Retry on 405 or 5xx — these are intermittent issues from iRacing.
+            if ( 405 === $status || $status >= 500 ) {
+                $this->last_error = 'OAuth HTTP ' . $status . ' (attempt ' . $attempt . '/' . $max_retries . '): ' . $raw_body;
+                error_log( 'EDR iRacing: ' . $this->last_error );
+                if ( $attempt < $max_retries ) { sleep( 2 ); }
+                continue;
+            }
+
+            if ( $status < 200 || $status >= 300 ) {
+                $this->last_error = 'OAuth HTTP ' . $status . ': ' . $raw_body;
+                error_log( 'EDR iRacing: ' . $this->last_error );
+                return null;
+            }
+
+            $body = json_decode( $raw_body, true );
+            unset( $response, $raw_body );
+
+            if ( empty( $body['access_token'] ) ) {
+                $this->last_error = 'OAuth response missing access_token: ' . wp_json_encode( $body );
+                error_log( 'EDR iRacing: ' . $this->last_error );
+                return null;
+            }
+
+            $expires = max( ( intval( isset( $body['expires_in'] ) ? $body['expires_in'] : 3600 ) ) - 120, 60 );
+            set_transient( 'edr_iracing_token', $body['access_token'], $expires );
+
+            $token = $body['access_token'];
+            unset( $body );
+
+            return $token;
         }
 
-        $status   = intval( wp_remote_retrieve_response_code( $response ) );
-        $raw_body = wp_remote_retrieve_body( $response );
-
-        if ( $status < 200 || $status >= 300 ) {
-            $this->last_error = 'OAuth HTTP ' . $status . ': ' . $raw_body;
-            error_log( 'EDR iRacing: ' . $this->last_error );
-            return null;
-        }
-
-        $body = json_decode( $raw_body, true );
-        unset( $response, $raw_body );
-
-        if ( empty( $body['access_token'] ) ) {
-            $this->last_error = 'OAuth response missing access_token: ' . wp_json_encode( $body );
-            error_log( 'EDR iRacing: ' . $this->last_error );
-            return null;
-        }
-
-        $expires = max( ( intval( isset( $body['expires_in'] ) ? $body['expires_in'] : 3600 ) ) - 120, 60 );
-        set_transient( 'edr_iracing_token', $body['access_token'], $expires );
-
-        $token = $body['access_token'];
-        unset( $body );
-
-        return $token;
+        // All retries exhausted.
+        return null;
     }
 
     /**
@@ -106,6 +127,9 @@ class EDR_IRacing_API {
      * where the real payload lives. Some endpoints use chunk_info instead.
      */
     private function api_request( $endpoint, $query = array() ) {
+        // Small delay before each API call to avoid bursting.
+        usleep( 500000 ); // 0.5 seconds
+
         $token = $this->get_access_token();
         if ( ! $token ) {
             return null;
@@ -143,8 +167,6 @@ class EDR_IRacing_API {
             ) );
 
             if ( is_wp_error( $response ) ) {
-                $this->last_error = 'API retry error on ' . $endpoint . ': ' . $response->get_error_message();
-                error_log( 'EDR iRacing: ' . $this->last_error );
                 return null;
             }
             $status_code = intval( wp_remote_retrieve_response_code( $response ) );
@@ -248,10 +270,6 @@ class EDR_IRacing_API {
     /**
      * Fetch everything needed for the drivers page.
      * Results are cached as a transient.
-     *
-     * iRating + Safety Rating come from /member/chart_data (Sports Car, cat 5).
-     * Career stats come from /stats/member_career (cat 2 + 5 combined).
-     * Recent races (any category) provide the "last race" display strip.
      */
     public function get_all_driver_data() {
         $settings = get_option( 'edr_iracing_settings', array() );
@@ -270,7 +288,7 @@ class EDR_IRacing_API {
         $team = $this->get_team( $team_id );
         if ( ! $team || empty( $team['roster'] ) ) {
             if ( ! $this->last_error ) {
-                $this->last_error = 'Could not fetch team roster. The team endpoint returned: ' . wp_json_encode( $team );
+                $this->last_error = 'Could not fetch team roster. Response: ' . wp_json_encode( $team );
             }
             return null;
         }
@@ -280,10 +298,8 @@ class EDR_IRacing_API {
 
         @set_time_limit( 300 );
 
-        $drivers     = array();
-        $batch_size  = 5;
-        $batch_pause = 2; // seconds between batches to avoid rate-limiting
-        $count       = 0;
+        $drivers = array();
+        $count   = 0;
 
         foreach ( $roster as $member ) {
             $cust_id = intval( $member['cust_id'] );
@@ -292,13 +308,13 @@ class EDR_IRacing_API {
             }
             $name = isset( $member['display_name'] ) ? $member['display_name'] : 'Unknown';
 
-            // Pause between batches to avoid hammering the API.
+            // Pause 3 seconds between each driver to avoid hammering the API.
+            // Each driver makes 4 API calls, so this keeps us well under rate limits.
             $count++;
-            if ( $count > 1 && 0 === ( $count - 1 ) % $batch_size ) {
-                sleep( $batch_pause );
+            if ( $count > 1 ) {
+                sleep( 3 );
             }
 
-            // Wrap each driver in a try/catch so one failure doesn't kill the entire sync.
             try {
                 $driver_data = $this->fetch_single_driver_data( $cust_id, $name );
                 if ( $driver_data ) {
@@ -319,16 +335,13 @@ class EDR_IRacing_API {
     }
 
     /**
-     * Fetch all stat data for a single driver. Extracted so the main loop
-     * can catch per-driver failures without aborting the entire sync.
+     * Fetch all stat data for a single driver.
      */
     private function fetch_single_driver_data( $cust_id, $name ) {
-        // ── 1. Career stats (Road + Sports Car combined) ──
         $career     = $this->get_member_career_stats( $cust_id );
         $road_stats = $this->extract_category_stats( $career, 'road' );
         unset( $career );
 
-        // ── 2. Sports Car iRating via /member/chart_data ──
         $irating      = null;
         $irating_prev = null;
         $ir_chart  = $this->get_member_chart_data( $cust_id, 5, 1 );
@@ -347,7 +360,6 @@ class EDR_IRacing_API {
             }
         }
 
-        // ── 3. Sports Car Safety Rating via /member/chart_data ──
         $safety_rating = null;
         $license_class = null;
         $sr_chart  = $this->get_member_chart_data( $cust_id, 5, 3 );
@@ -364,7 +376,6 @@ class EDR_IRacing_API {
             }
         }
 
-        // ── 4. Recent races → last race display ──
         $last_race = null;
         $recent    = $this->get_member_recent_races( $cust_id );
 
@@ -407,10 +418,6 @@ class EDR_IRacing_API {
         );
     }
 
-    /**
-     * Parse the chart_data response into an array of {when, value} points.
-     * The API may return the data nested under different keys.
-     */
     private function extract_chart_points( $chart ) {
         if ( ! is_array( $chart ) ) {
             return array();
@@ -439,16 +446,11 @@ class EDR_IRacing_API {
     }
 
     public function sort_by_irating_desc( $a, $b ) {
-        // Null iRating (unrated) sorts to the bottom.
         $a_ir = ( isset( $a['irating'] ) && null !== $a['irating'] ) ? intval( $a['irating'] ) : -1;
         $b_ir = ( isset( $b['irating'] ) && null !== $b['irating'] ) ? intval( $b['irating'] ) : -1;
         return $b_ir - $a_ir;
     }
 
-    /**
-     * Pull wins / starts / top5 / laps for a specific category from career stats.
-     * Category IDs: 1 = Oval, 2 = Road, 3 = Dirt Oval, 4 = Dirt Road, 5 = Sports Car
-     */
     private function extract_category_stats( $career, $type ) {
         $defaults = array( 'wins' => 0, 'starts' => 0, 'top5' => 0, 'laps' => 0 );
 

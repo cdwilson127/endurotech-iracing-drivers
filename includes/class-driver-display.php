@@ -537,6 +537,8 @@ class EDR_Driver_Display {
         $featured = array();
         foreach ( $drivers as $d ) {
             $did = isset( $d['driver_id'] ) ? $d['driver_id'] : $d['cust_id'];
+            $d_role = isset( $profiles[ $did ]['role'] ) ? $profiles[ $did ]['role'] : '';
+            if ( 'inactive' === $d_role ) { continue; }
             if ( ! empty( $profiles[ $did ]['featured'] ) ) {
                 $featured[] = $d;
             }
@@ -651,8 +653,12 @@ class EDR_Driver_Display {
             <?php foreach ( $drivers as $i => $driver ) :
                 $did       = isset( $driver['driver_id'] ) ? $driver['driver_id'] : $driver['cust_id'];
                 $profile   = isset( $profiles[ $did ] ) ? $profiles[ $did ] : array();
-                $photo     = isset( $profile['photo_url'] )   ? $profile['photo_url']   : '';
                 $role      = isset( $profile['role'] )        ? $profile['role']        : '';
+
+                // Skip inactive drivers — they stay in admin but are hidden from the site.
+                if ( 'inactive' === $role ) { continue; }
+
+                $photo     = isset( $profile['photo_url'] )   ? $profile['photo_url']   : '';
                 $number    = isset( $profile['number'] )      ? $profile['number']      : '';
                 $nat       = isset( $profile['nationality'] )  ? $profile['nationality'] : '';
                 $flag_code = isset( $profile['flag_code'] )   ? $profile['flag_code']   : '';
@@ -805,7 +811,12 @@ class EDR_Driver_Display {
                     <!-- Back face -->
                     <div class="edr-card-back">
                         <div class="edr-card-back-inner">
-                            <h3 class="edr-card-back-name"><?php echo esc_html( $driver['name'] ); ?></h3>
+                            <h3 class="edr-card-back-name">
+                                <?php echo esc_html( $driver['name'] ); ?>
+                                <?php if ( $o['show_active'] && $is_active ) : ?>
+                                    <span class="edr-active-dot" title="Raced in the last 30 days"></span>
+                                <?php endif; ?>
+                            </h3>
 
                             <?php if ( $flag || $nat ) : ?>
                                 <span class="edr-driver-nat edr-back-nat"><?php echo $flag ? $flag . ' ' : ''; ?><?php echo esc_html( $nat ); ?></span>
@@ -897,6 +908,7 @@ class EDR_Driver_Display {
                         $did      = isset( $driver['driver_id'] ) ? $driver['driver_id'] : $driver['cust_id'];
                         $profile  = isset( $profiles[ $did ] ) ? $profiles[ $did ] : array();
                         $role     = isset( $profile['role'] )      ? $profile['role']      : '';
+                        if ( 'inactive' === $role ) { continue; }
                         $number   = isset( $profile['number'] )    ? $profile['number']    : '';
                         $nat      = isset( $profile['nationality'] ) ? $profile['nationality'] : '';
                         $flag     = isset( $profile['flag_code'] ) ? $this->get_flag( $profile['flag_code'] ) : '';
