@@ -196,7 +196,7 @@ class EDR_Admin_Settings {
     }
 
     public function sanitize_api( $input ) {
-        return array(
+        $sanitized = array(
             'client_id'     => sanitize_text_field( isset( $input['client_id'] )     ? $input['client_id']     : '' ),
             'client_secret' => sanitize_text_field( isset( $input['client_secret'] ) ? $input['client_secret'] : '' ),
             'username'      => sanitize_email( isset( $input['username'] )           ? $input['username']      : '' ),
@@ -204,6 +204,17 @@ class EDR_Admin_Settings {
             'team_id'       => absint( isset( $input['team_id'] )     ? $input['team_id']     : 0 ),
             'cache_hours'   => max( 1, absint( isset( $input['cache_hours'] ) ? $input['cache_hours'] : 1 ) ),
         );
+
+        // Reschedule cron whenever the sync interval changes.
+        $old = get_option( 'edr_iracing_settings', array() );
+        $old_hours = isset( $old['cache_hours'] ) ? intval( $old['cache_hours'] ) : 24;
+        if ( intval( $sanitized['cache_hours'] ) !== $old_hours ) {
+            if ( function_exists( 'edr_schedule_sync' ) ) {
+                edr_schedule_sync();
+            }
+        }
+
+        return $sanitized;
     }
 
     public function sanitize_style( $input ) {

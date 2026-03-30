@@ -36,12 +36,74 @@ function edr_iracing_activate() {
         ) );
     }
     edr_maybe_upgrade();
+    edr_schedule_sync();
 }
 
 function edr_iracing_deactivate() {
+    wp_clear_scheduled_hook( 'edr_cron_sync_drivers' );
     delete_transient( 'edr_iracing_drivers_cache' );
     delete_transient( 'edr_iracing_token' );
 }
+
+/**
+ * Schedule the background sync cron event based on the cache_hours setting.
+ * Clears any existing schedule first to allow rescheduling when the interval changes.
+ */
+function edr_schedule_sync() {
+    wp_clear_scheduled_hook( 'edr_cron_sync_drivers' );
+
+    $settings    = get_option( 'edr_iracing_settings', array() );
+    $cache_hours = max( 1, intval( isset( $settings['cache_hours'] ) ? $settings['cache_hours'] : 24 ) );
+
+    $interval_seconds = $cache_hours * HOUR_IN_SECONDS;
+    $recurrence       = 'edr_sync_interval';
+
+    // Register a custom cron interval matching the admin setting.
+    add_filter( 'cron_schedules', function ( $schedules ) use ( $interval_seconds, $cache_hours ) {
+        $schedules['edr_sync_interval'] = array(
+            'interval' => $interval_seconds,
+            'display'  => sprintf( 'Every %d hour(s) — EDR iRacing sync', $cache_hours ),
+        );
+        return $schedules;
+    } );
+
+    if ( ! wp_next_scheduled( 'edr_cron_sync_drivers' ) ) {
+        wp_schedule_event( time(), $recurrence, 'edr_cron_sync_drivers' );
+    }
+}
+
+/**
+ * Cron callback — runs the driver sync in the background so it never
+ * blocks a frontend page load or causes a 504 for visitors.
+ */
+function edr_cron_sync_callback() {
+    $api = new EDR_IRacing_API();
+    if ( $api->is_configured() ) {
+        // Clear cache so get_all_driver_data() performs a fresh fetch.
+        delete_transient( 'edr_iracing_drivers_cache' );
+        $api->get_all_driver_data();
+    }
+}
+add_action( 'edr_cron_sync_drivers', 'edr_cron_sync_callback' );
+
+// Register the custom cron interval on every load so WP recognises it.
+add_filter( 'cron_schedules', function ( $schedules ) {
+    $settings    = get_option( 'edr_iracing_settings', array() );
+    $cache_hours = max( 1, intval( isset( $settings['cache_hours'] ) ? $settings['cache_hours'] : 24 ) );
+    $schedules['edr_sync_interval'] = array(
+        'interval' => $cache_hours * HOUR_IN_SECONDS,
+        'display'  => sprintf( 'Every %d hour(s) — EDR iRacing sync', $cache_hours ),
+    );
+    return $schedules;
+} );
+
+// If cron was never scheduled (e.g. plugin was already active before this update),
+// schedule it now on plugins_loaded.
+add_action( 'plugins_loaded', function () {
+    if ( ! wp_next_scheduled( 'edr_cron_sync_drivers' ) ) {
+        edr_schedule_sync();
+    }
+} );
 
 /**
  * Runs on every WordPress load via plugins_loaded.
