@@ -1,9 +1,9 @@
 <?php
 /**
- * iRacing Data API client using OAuth2 password_limited flow.
+ * iRacing Data API client using cookie-based authentication.
  *
- * Authentication and data-fetching pattern adapted from
- * https://github.com/dbousamra/iracing-bot (iracing-client.ts).
+ * Auth flow: POST email + hashed password to /auth, then use the
+ * returned session cookies for all subsequent data API requests.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -12,80 +12,78 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class EDR_IRacing_API {
 
-    private static $OAUTH_URL    = 'https://oauth.iracing.com/oauth2/token';
+    private static $AUTH_URL     = 'https://members-ng.iracing.com/auth';
     private static $DATA_API_URL = 'https://members-ng.iracing.com/data';
 
-    private $client_id     = '';
-    private $client_secret = '';
-    private $username      = '';
-    private $password      = '';
+    private $username = '';
+    private $password = '';
+    private $cookies  = null;
 
     public function __construct() {
         $settings = get_option( 'edr_iracing_settings', array() );
 
-        $this->client_id     = isset( $settings['client_id'] )     ? $settings['client_id']     : '';
-        $this->client_secret = isset( $settings['client_secret'] ) ? $settings['client_secret'] : '';
-        $this->username      = isset( $settings['username'] )      ? $settings['username']      : '';
-        $this->password      = isset( $settings['password'] )      ? $settings['password']      : '';
+        $this->username = isset( $settings['username'] ) ? $settings['username'] : '';
+        $this->password = isset( $settings['password'] ) ? $settings['password'] : '';
     }
 
     public function is_configured() {
-        return $this->client_id && $this->client_secret
-            && $this->username && $this->password;
+        return $this->username && $this->password;
     }
 
-    private function hash_value( $value, $salt ) {
-        return base64_encode( hash( 'sha256', $value . strtolower( $salt ), true ) );
+    /**
+     * Hash the password the way iRacing expects: base64( sha256( password + lowercase(email) ) ).
+     */
+    private function hash_password( $password, $email ) {
+        return base64_encode( hash( 'sha256', $password . strtolower( $email ), true ) );
     }
 
-    private function get_access_token() {
-        $cached = get_transient( 'edr_iracing_token' );
-        if ( $cached ) {
-            return $cached;
+    /**
+     * Authenticate with the iRacing Data API via cookie-based login.
+     * Caches the session cookies as a transient so we don't re-auth on every call.
+     *
+     * @return array|null Array of WP_Http_Cookie objects, or null on failure.
+     */
+    private function authenticate() {
+        // Check for cached cookies.
+        $cached = get_transient( 'edr_iracing_cookies' );
+        if ( ! empty( $cached ) && is_array( $cached ) ) {
+            $this->cookies = $cached;
+            return $this->cookies;
         }
 
-        $hashed_password = $this->hash_value( $this->password, $this->username );
-        $hashed_secret   = $this->hash_value( $this->client_secret, $this->client_id );
+        $hashed_password = $this->hash_password( $this->password, $this->username );
 
-        $response = wp_remote_post( self::$OAUTH_URL, array(
+        $response = wp_remote_post( self::$AUTH_URL, array(
             'timeout' => 30,
-            'headers' => array( 'Content-Type' => 'application/x-www-form-urlencoded' ),
-            'body'    => http_build_query( array(
-                'grant_type'    => 'password_limited',
-                'client_id'     => $this->client_id,
-                'client_secret' => $hashed_secret,
-                'username'      => $this->username,
-                'password'      => $hashed_password,
-                'scope'         => 'iracing.auth',
+            'headers' => array( 'Content-Type' => 'application/json' ),
+            'body'    => wp_json_encode( array(
+                'email'    => $this->username,
+                'password' => $hashed_password,
             ) ),
         ) );
 
         if ( is_wp_error( $response ) ) {
-            error_log( 'EDR iRacing: OAuth error - ' . $response->get_error_message() );
+            error_log( 'EDR iRacing: Auth error - ' . $response->get_error_message() );
             return null;
         }
 
-        $oauth_status = intval( wp_remote_retrieve_response_code( $response ) );
-        if ( $oauth_status < 200 || $oauth_status >= 300 ) {
-            error_log( 'EDR iRacing: OAuth HTTP ' . $oauth_status . ' - ' . wp_remote_retrieve_body( $response ) );
+        $status = intval( wp_remote_retrieve_response_code( $response ) );
+        if ( $status < 200 || $status >= 300 ) {
+            error_log( 'EDR iRacing: Auth HTTP ' . $status . ' - ' . wp_remote_retrieve_body( $response ) );
             return null;
         }
 
-        $body = json_decode( wp_remote_retrieve_body( $response ), true );
-        unset( $response );
-
-        if ( empty( $body['access_token'] ) ) {
-            error_log( 'EDR iRacing: OAuth failed - ' . wp_json_encode( $body ) );
+        $cookies = wp_remote_retrieve_cookies( $response );
+        if ( empty( $cookies ) ) {
+            error_log( 'EDR iRacing: Auth succeeded but no cookies returned.' );
             return null;
         }
 
-        $expires = max( ( intval( isset( $body['expires_in'] ) ? $body['expires_in'] : 3600 ) ) - 120, 60 );
-        set_transient( 'edr_iracing_token', $body['access_token'], $expires );
+        // Cache cookies for 55 minutes (session typically lasts ~1 hour).
+        set_transient( 'edr_iracing_cookies', $cookies, 55 * MINUTE_IN_SECONDS );
+        $this->cookies = $cookies;
 
-        $token = $body['access_token'];
-        unset( $body );
-
-        return $token;
+        return $this->cookies;
     }
 
     /**
@@ -93,8 +91,8 @@ class EDR_IRacing_API {
      * where the real payload lives. Some endpoints use chunk_info instead.
      */
     private function api_request( $endpoint, $query = array() ) {
-        $token = $this->get_access_token();
-        if ( ! $token ) {
+        $cookies = $this->authenticate();
+        if ( ! $cookies ) {
             return null;
         }
 
@@ -105,31 +103,33 @@ class EDR_IRacing_API {
 
         $response = wp_remote_get( $url, array(
             'timeout' => 30,
-            'headers' => array( 'Authorization' => 'Bearer ' . $token ),
+            'cookies' => $cookies,
         ) );
 
         if ( is_wp_error( $response ) ) {
-            error_log( 'EDR iRacing: API error - ' . $response->get_error_message() );
+            error_log( 'EDR iRacing: API error on ' . $endpoint . ' - ' . $response->get_error_message() );
             return null;
         }
 
         $status_code = intval( wp_remote_retrieve_response_code( $response ) );
 
-        // If the endpoint rejects GET, retry with POST.
-        if ( 405 === $status_code ) {
-            error_log( 'EDR iRacing: 405 on GET ' . $endpoint . ', retrying with POST.' );
-            $post_url = self::$DATA_API_URL . $endpoint;
-            $response = wp_remote_post( $post_url, array(
+        // If we get a 401, our session may have expired — clear cookies and retry once.
+        if ( 401 === $status_code ) {
+            error_log( 'EDR iRacing: 401 on ' . $endpoint . ', re-authenticating.' );
+            delete_transient( 'edr_iracing_cookies' );
+            $this->cookies = null;
+
+            $cookies = $this->authenticate();
+            if ( ! $cookies ) {
+                return null;
+            }
+
+            $response = wp_remote_get( $url, array(
                 'timeout' => 30,
-                'headers' => array(
-                    'Authorization' => 'Bearer ' . $token,
-                    'Content-Type'  => 'application/json',
-                ),
-                'body'    => wp_json_encode( $query ),
+                'cookies' => $cookies,
             ) );
 
             if ( is_wp_error( $response ) ) {
-                error_log( 'EDR iRacing: POST retry error - ' . $response->get_error_message() );
                 return null;
             }
             $status_code = intval( wp_remote_retrieve_response_code( $response ) );
@@ -272,7 +272,7 @@ class EDR_IRacing_API {
             }
             $name = isset( $member['display_name'] ) ? $member['display_name'] : 'Unknown';
 
-            // Pause between batches to avoid hammering the API and triggering 504s.
+            // Pause between batches to avoid hammering the API.
             $count++;
             if ( $count > 1 && 0 === ( $count - 1 ) % $batch_size ) {
                 sleep( $batch_pause );

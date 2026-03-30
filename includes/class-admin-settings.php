@@ -81,7 +81,7 @@ class EDR_Admin_Settings {
         ) );
 
         add_settings_section( 'edr_api_section', 'iRacing API Credentials', function () {
-            echo '<p>Enter your iRacing OAuth2 client credentials. These are <strong>optional</strong> &mdash; '
+            echo '<p>Enter your iRacing login credentials. These are <strong>optional</strong> &mdash; '
                . 'you can manage drivers manually without them. When connected, live stats override manual values.</p>';
         }, $this->page_slug );
 
@@ -1013,8 +1013,7 @@ class EDR_Admin_Settings {
 
     private function is_api_configured() {
         $s = get_option( $this->option_name, array() );
-        return ! empty( $s['client_id'] ) && ! empty( $s['client_secret'] )
-            && ! empty( $s['username'] )  && ! empty( $s['password'] );
+        return ! empty( $s['username'] ) && ! empty( $s['password'] );
     }
 
     private function render_admin_notice( $msg ) {
