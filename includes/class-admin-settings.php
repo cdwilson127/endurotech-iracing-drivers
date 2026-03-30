@@ -377,14 +377,15 @@ class EDR_Admin_Settings {
         if ( ! is_array( $api_cache ) ) { $api_cache = array(); }
 
         $role_options = array(
-            ''        => '-- No role --',
-            'captain' => 'Team Captain',
-            'lead'    => 'Lead Driver',
-            'pro'     => 'Pro Driver',
-            'silver'  => 'Silver Driver',
-            'bronze'  => 'Bronze Driver',
-            'reserve' => 'Reserve Driver',
-            'academy' => 'Academy',
+            ''         => '-- No role --',
+            'captain'  => 'Team Captain',
+            'lead'     => 'Lead Driver',
+            'pro'      => 'Pro Driver',
+            'silver'   => 'Silver Driver',
+            'bronze'   => 'Bronze Driver',
+            'reserve'  => 'Reserve Driver',
+            'academy'  => 'Academy',
+            'inactive' => 'Inactive (hidden from site)',
         );
 
         $gear_fields = array(
