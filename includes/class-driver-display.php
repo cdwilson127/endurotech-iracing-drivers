@@ -160,7 +160,9 @@ class EDR_Driver_Display {
                 wp_schedule_single_event( time(), 'edr_cron_sync_drivers' );
             }
             // Trigger WP-Cron spawn so the sync starts immediately in the background.
-            spawn_cron();
+            if ( function_exists( 'spawn_cron' ) ) {
+                spawn_cron();
+            }
         }
 
         if ( ! is_array( $api_cache ) || empty( $api_cache ) ) {
