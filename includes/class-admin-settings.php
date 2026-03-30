@@ -81,7 +81,7 @@ class EDR_Admin_Settings {
         ) );
 
         add_settings_section( 'edr_api_section', 'iRacing API Credentials', function () {
-            echo '<p>Enter your iRacing login credentials. These are <strong>optional</strong> &mdash; '
+            echo '<p>Enter your iRacing OAuth2 client credentials. These are <strong>optional</strong> &mdash; '
                . 'you can manage drivers manually without them. When connected, live stats override manual values.</p>';
         }, $this->page_slug );
 
@@ -837,13 +837,18 @@ class EDR_Admin_Settings {
         }
 
         $api     = new EDR_IRacing_API();
+        // Clear any cached token so we get a fresh auth attempt.
+        delete_transient( 'edr_iracing_token' );
         $drivers = $api->get_all_driver_data();
-        unset( $api );
 
         if ( empty( $drivers ) || ! is_array( $drivers ) ) {
-            wp_redirect( admin_url( 'admin.php?page=' . $this->profiles_slug . '&msg=sync_fail' ) );
+            $error = $api->get_last_error();
+            unset( $api );
+            $error_param = $error ? '&detail=' . urlencode( $error ) : '';
+            wp_redirect( admin_url( 'admin.php?page=' . $this->profiles_slug . '&msg=sync_fail' . $error_param ) );
             exit;
         }
+        unset( $api );
 
         $profiles = get_option( $this->profiles_key, array() );
         if ( ! is_array( $profiles ) ) { $profiles = array(); }
@@ -1013,7 +1018,8 @@ class EDR_Admin_Settings {
 
     private function is_api_configured() {
         $s = get_option( $this->option_name, array() );
-        return ! empty( $s['username'] ) && ! empty( $s['password'] );
+        return ! empty( $s['client_id'] ) && ! empty( $s['client_secret'] )
+            && ! empty( $s['username'] )  && ! empty( $s['password'] );
     }
 
     private function render_admin_notice( $msg ) {
@@ -1022,7 +1028,7 @@ class EDR_Admin_Settings {
             'added'         => array( 'success', 'Driver added successfully.' ),
             'deleted'       => array( 'success', 'Driver removed.' ),
             'synced'        => array( 'success', 'Sync complete. ' . ( isset( $_GET['count'] ) ? absint( $_GET['count'] ) . ' new driver(s) imported.' : '' ) ),
-            'sync_fail'     => array( 'error',   'API sync failed. Check your credentials and team ID.' ),
+            'sync_fail'     => array( 'error',   'API sync failed. ' . ( ! empty( $_GET['detail'] ) ? sanitize_text_field( wp_unslash( $_GET['detail'] ) ) : 'Check your credentials and team ID.' ) ),
             'fetch_ok'      => array( 'success', 'Driver stats fetched from iRacing API.' ),
             'fetch_fail'    => array( 'error',   'Could not fetch stats for this driver. Check the Customer ID and API credentials.' ),
             'name_required' => array( 'error',   'Driver name is required.' ),
