@@ -805,7 +805,12 @@ class EDR_Driver_Display {
                     <!-- Back face -->
                     <div class="edr-card-back">
                         <div class="edr-card-back-inner">
-                            <h3 class="edr-card-back-name"><?php echo esc_html( $driver['name'] ); ?></h3>
+                            <h3 class="edr-card-back-name">
+                                <?php echo esc_html( $driver['name'] ); ?>
+                                <?php if ( $o['show_active'] && $is_active ) : ?>
+                                    <span class="edr-active-dot" title="Raced in the last 30 days"></span>
+                                <?php endif; ?>
+                            </h3>
 
                             <?php if ( $flag || $nat ) : ?>
                                 <span class="edr-driver-nat edr-back-nat"><?php echo $flag ? $flag . ' ' : ''; ?><?php echo esc_html( $nat ); ?></span>
