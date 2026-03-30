@@ -1,9 +1,9 @@
 <?php
 /**
- * iRacing Data API client using OAuth2 password_limited flow.
+ * iRacing Data API client using cookie-based authentication.
  *
- * Authentication and data-fetching pattern adapted from
- * https://github.com/dbousamra/iracing-bot (iracing-client.ts).
+ * Auth flow: POST email + hashed password to /auth, then use the
+ * returned session cookies for all subsequent data API requests.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -12,74 +12,78 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class EDR_IRacing_API {
 
-    private static $OAUTH_URL    = 'https://oauth.iracing.com/oauth2/token';
+    private static $AUTH_URL     = 'https://members-ng.iracing.com/auth';
     private static $DATA_API_URL = 'https://members-ng.iracing.com/data';
 
-    private $client_id     = '';
-    private $client_secret = '';
-    private $username      = '';
-    private $password      = '';
+    private $username = '';
+    private $password = '';
+    private $cookies  = null;
 
     public function __construct() {
         $settings = get_option( 'edr_iracing_settings', array() );
 
-        $this->client_id     = isset( $settings['client_id'] )     ? $settings['client_id']     : '';
-        $this->client_secret = isset( $settings['client_secret'] ) ? $settings['client_secret'] : '';
-        $this->username      = isset( $settings['username'] )      ? $settings['username']      : '';
-        $this->password      = isset( $settings['password'] )      ? $settings['password']      : '';
+        $this->username = isset( $settings['username'] ) ? $settings['username'] : '';
+        $this->password = isset( $settings['password'] ) ? $settings['password'] : '';
     }
 
     public function is_configured() {
-        return $this->client_id && $this->client_secret
-            && $this->username && $this->password;
+        return $this->username && $this->password;
     }
 
-    private function hash_value( $value, $salt ) {
-        return base64_encode( hash( 'sha256', $value . strtolower( $salt ), true ) );
+    /**
+     * Hash the password the way iRacing expects: base64( sha256( password + lowercase(email) ) ).
+     */
+    private function hash_password( $password, $email ) {
+        return base64_encode( hash( 'sha256', $password . strtolower( $email ), true ) );
     }
 
-    private function get_access_token() {
-        $cached = get_transient( 'edr_iracing_token' );
-        if ( $cached ) {
-            return $cached;
+    /**
+     * Authenticate with the iRacing Data API via cookie-based login.
+     * Caches the session cookies as a transient so we don't re-auth on every call.
+     *
+     * @return array|null Array of WP_Http_Cookie objects, or null on failure.
+     */
+    private function authenticate() {
+        // Check for cached cookies.
+        $cached = get_transient( 'edr_iracing_cookies' );
+        if ( ! empty( $cached ) && is_array( $cached ) ) {
+            $this->cookies = $cached;
+            return $this->cookies;
         }
 
-        $hashed_password = $this->hash_value( $this->password, $this->username );
-        $hashed_secret   = $this->hash_value( $this->client_secret, $this->client_id );
+        $hashed_password = $this->hash_password( $this->password, $this->username );
 
-        $response = wp_remote_post( self::$OAUTH_URL, array(
+        $response = wp_remote_post( self::$AUTH_URL, array(
             'timeout' => 30,
-            'headers' => array( 'Content-Type' => 'application/x-www-form-urlencoded' ),
-            'body'    => http_build_query( array(
-                'grant_type'    => 'password_limited',
-                'client_id'     => $this->client_id,
-                'client_secret' => $hashed_secret,
-                'username'      => $this->username,
-                'password'      => $hashed_password,
-                'scope'         => 'iracing.auth',
+            'headers' => array( 'Content-Type' => 'application/json' ),
+            'body'    => wp_json_encode( array(
+                'email'    => $this->username,
+                'password' => $hashed_password,
             ) ),
         ) );
 
         if ( is_wp_error( $response ) ) {
-            error_log( 'EDR iRacing: OAuth error - ' . $response->get_error_message() );
+            error_log( 'EDR iRacing: Auth error - ' . $response->get_error_message() );
             return null;
         }
 
-        $body = json_decode( wp_remote_retrieve_body( $response ), true );
-        unset( $response );
-
-        if ( empty( $body['access_token'] ) ) {
-            error_log( 'EDR iRacing: OAuth failed - ' . wp_json_encode( $body ) );
+        $status = intval( wp_remote_retrieve_response_code( $response ) );
+        if ( $status < 200 || $status >= 300 ) {
+            error_log( 'EDR iRacing: Auth HTTP ' . $status . ' - ' . wp_remote_retrieve_body( $response ) );
             return null;
         }
 
-        $expires = max( ( intval( isset( $body['expires_in'] ) ? $body['expires_in'] : 3600 ) ) - 120, 60 );
-        set_transient( 'edr_iracing_token', $body['access_token'], $expires );
+        $cookies = wp_remote_retrieve_cookies( $response );
+        if ( empty( $cookies ) ) {
+            error_log( 'EDR iRacing: Auth succeeded but no cookies returned.' );
+            return null;
+        }
 
-        $token = $body['access_token'];
-        unset( $body );
+        // Cache cookies for 55 minutes (session typically lasts ~1 hour).
+        set_transient( 'edr_iracing_cookies', $cookies, 55 * MINUTE_IN_SECONDS );
+        $this->cookies = $cookies;
 
-        return $token;
+        return $this->cookies;
     }
 
     /**
@@ -87,8 +91,8 @@ class EDR_IRacing_API {
      * where the real payload lives. Some endpoints use chunk_info instead.
      */
     private function api_request( $endpoint, $query = array() ) {
-        $token = $this->get_access_token();
-        if ( ! $token ) {
+        $cookies = $this->authenticate();
+        if ( ! $cookies ) {
             return null;
         }
 
@@ -99,11 +103,40 @@ class EDR_IRacing_API {
 
         $response = wp_remote_get( $url, array(
             'timeout' => 30,
-            'headers' => array( 'Authorization' => 'Bearer ' . $token ),
+            'cookies' => $cookies,
         ) );
 
         if ( is_wp_error( $response ) ) {
-            error_log( 'EDR iRacing: API error - ' . $response->get_error_message() );
+            error_log( 'EDR iRacing: API error on ' . $endpoint . ' - ' . $response->get_error_message() );
+            return null;
+        }
+
+        $status_code = intval( wp_remote_retrieve_response_code( $response ) );
+
+        // If we get a 401, our session may have expired — clear cookies and retry once.
+        if ( 401 === $status_code ) {
+            error_log( 'EDR iRacing: 401 on ' . $endpoint . ', re-authenticating.' );
+            delete_transient( 'edr_iracing_cookies' );
+            $this->cookies = null;
+
+            $cookies = $this->authenticate();
+            if ( ! $cookies ) {
+                return null;
+            }
+
+            $response = wp_remote_get( $url, array(
+                'timeout' => 30,
+                'cookies' => $cookies,
+            ) );
+
+            if ( is_wp_error( $response ) ) {
+                return null;
+            }
+            $status_code = intval( wp_remote_retrieve_response_code( $response ) );
+        }
+
+        if ( $status_code < 200 || $status_code >= 300 ) {
+            error_log( 'EDR iRacing: HTTP ' . $status_code . ' on ' . $endpoint );
             return null;
         }
 
@@ -225,9 +258,12 @@ class EDR_IRacing_API {
         $roster = $team['roster'];
         unset( $team );
 
-        set_time_limit( 300 );
+        @set_time_limit( 300 );
 
-        $drivers = array();
+        $drivers     = array();
+        $batch_size  = 5;
+        $batch_pause = 2; // seconds between batches to avoid rate-limiting
+        $count       = 0;
 
         foreach ( $roster as $member ) {
             $cust_id = intval( $member['cust_id'] );
@@ -236,88 +272,21 @@ class EDR_IRacing_API {
             }
             $name = isset( $member['display_name'] ) ? $member['display_name'] : 'Unknown';
 
-            // ── 1. Career stats (Road + Sports Car combined) ──
-            $career     = $this->get_member_career_stats( $cust_id );
-            $road_stats = $this->extract_category_stats( $career, 'road' );
-            unset( $career );
+            // Pause between batches to avoid hammering the API.
+            $count++;
+            if ( $count > 1 && 0 === ( $count - 1 ) % $batch_size ) {
+                sleep( $batch_pause );
+            }
 
-            // ── 2. Sports Car iRating via /member/chart_data ──
-            $irating      = null;
-            $irating_prev = null;
-            $ir_chart = $this->get_member_chart_data( $cust_id, 5, 1 );
-            $ir_points = $this->extract_chart_points( $ir_chart );
-            unset( $ir_chart );
-
-            if ( ! empty( $ir_points ) ) {
-                $last_point = end( $ir_points );
-                $ir_val     = isset( $last_point['value'] ) ? intval( $last_point['value'] ) : 0;
-                $irating    = ( $ir_val > 0 ) ? $ir_val : null;
-
-                if ( count( $ir_points ) >= 2 ) {
-                    $prev_point   = $ir_points[ count( $ir_points ) - 2 ];
-                    $prev_val     = isset( $prev_point['value'] ) ? intval( $prev_point['value'] ) : 0;
-                    $irating_prev = ( $prev_val > 0 ) ? $prev_val : null;
+            // Wrap each driver in a try/catch so one failure doesn't kill the entire sync.
+            try {
+                $driver_data = $this->fetch_single_driver_data( $cust_id, $name );
+                if ( $driver_data ) {
+                    $drivers[] = $driver_data;
                 }
+            } catch ( \Exception $e ) {
+                error_log( 'EDR iRacing: Exception fetching ' . $name . ' (cust_id ' . $cust_id . '): ' . $e->getMessage() );
             }
-
-            // ── 3. Sports Car Safety Rating via /member/chart_data ──
-            $safety_rating = null;
-            $license_class = null;
-            $sr_chart = $this->get_member_chart_data( $cust_id, 5, 3 );
-            $sr_points = $this->extract_chart_points( $sr_chart );
-            unset( $sr_chart );
-
-            if ( ! empty( $sr_points ) ) {
-                $last_sr  = end( $sr_points );
-                $raw_sr   = isset( $last_sr['value'] ) ? intval( $last_sr['value'] ) : 0;
-                if ( $raw_sr > 0 ) {
-                    $license_class = intval( floor( $raw_sr / 1000 ) );
-                    $sub_level     = $raw_sr % 1000;
-                    $safety_rating = number_format( $sub_level / 100, 2 );
-                }
-            }
-
-            // ── 4. Recent races → last race display ──
-            $last_race = null;
-            $recent    = $this->get_member_recent_races( $cust_id );
-
-            if ( ! empty( $recent['races'] ) ) {
-                usort( $recent['races'], array( $this, 'sort_races_desc' ) );
-
-                $any_race   = $recent['races'][0];
-                $finish_raw = isset( $any_race['finish_position'] ) ? $any_race['finish_position'] : null;
-                $start_raw  = isset( $any_race['start_position'] )  ? $any_race['start_position']  : null;
-                $last_race  = array(
-                    'series'    => isset( $any_race['series_name'] )         ? $any_race['series_name']         : '',
-                    'track'     => isset( $any_race['track']['track_name'] ) ? $any_race['track']['track_name'] : '',
-                    'finish'    => is_numeric( $finish_raw ) ? intval( $finish_raw ) : '-',
-                    'start'     => is_numeric( $start_raw )  ? intval( $start_raw )  : '-',
-                    'incidents' => isset( $any_race['incidents'] )           ? $any_race['incidents']           : 0,
-                    'sof'       => isset( $any_race['strength_of_field'] )   ? $any_race['strength_of_field']   : 0,
-                    'date'      => isset( $any_race['session_start_time'] )  ? $any_race['session_start_time']  : '',
-                );
-                unset( $any_race );
-            }
-            unset( $recent );
-
-            if ( null === $irating ) {
-                error_log( 'EDR iRacing: No Sports Car iRating chart data for ' . $name . ' (cust_id ' . $cust_id . ').' );
-            }
-
-            $drivers[] = array(
-                'cust_id'        => $cust_id,
-                'name'           => $name,
-                'irating'        => $irating,
-                'irating_prev'   => $irating_prev,
-                'safety_rating'  => $safety_rating,
-                'license_class'  => $license_class,
-                'wins'           => $road_stats['wins'],
-                'starts'         => $road_stats['starts'],
-                'top5'           => $road_stats['top5'],
-                'laps'           => $road_stats['laps'],
-                'last_race'      => $last_race,
-                'last_race_date' => $last_race ? $last_race['date'] : '',
-            );
         }
         unset( $roster );
 
@@ -327,6 +296,95 @@ class EDR_IRacing_API {
         update_option( 'edr_iracing_api_snapshot', $drivers, false );
 
         return $drivers;
+    }
+
+    /**
+     * Fetch all stat data for a single driver. Extracted so the main loop
+     * can catch per-driver failures without aborting the entire sync.
+     */
+    private function fetch_single_driver_data( $cust_id, $name ) {
+        // ── 1. Career stats (Road + Sports Car combined) ──
+        $career     = $this->get_member_career_stats( $cust_id );
+        $road_stats = $this->extract_category_stats( $career, 'road' );
+        unset( $career );
+
+        // ── 2. Sports Car iRating via /member/chart_data ──
+        $irating      = null;
+        $irating_prev = null;
+        $ir_chart  = $this->get_member_chart_data( $cust_id, 5, 1 );
+        $ir_points = $this->extract_chart_points( $ir_chart );
+        unset( $ir_chart );
+
+        if ( ! empty( $ir_points ) ) {
+            $last_point = end( $ir_points );
+            $ir_val     = isset( $last_point['value'] ) ? intval( $last_point['value'] ) : 0;
+            $irating    = ( $ir_val > 0 ) ? $ir_val : null;
+
+            if ( count( $ir_points ) >= 2 ) {
+                $prev_point   = $ir_points[ count( $ir_points ) - 2 ];
+                $prev_val     = isset( $prev_point['value'] ) ? intval( $prev_point['value'] ) : 0;
+                $irating_prev = ( $prev_val > 0 ) ? $prev_val : null;
+            }
+        }
+
+        // ── 3. Sports Car Safety Rating via /member/chart_data ──
+        $safety_rating = null;
+        $license_class = null;
+        $sr_chart  = $this->get_member_chart_data( $cust_id, 5, 3 );
+        $sr_points = $this->extract_chart_points( $sr_chart );
+        unset( $sr_chart );
+
+        if ( ! empty( $sr_points ) ) {
+            $last_sr = end( $sr_points );
+            $raw_sr  = isset( $last_sr['value'] ) ? intval( $last_sr['value'] ) : 0;
+            if ( $raw_sr > 0 ) {
+                $license_class = intval( floor( $raw_sr / 1000 ) );
+                $sub_level     = $raw_sr % 1000;
+                $safety_rating = number_format( $sub_level / 100, 2 );
+            }
+        }
+
+        // ── 4. Recent races → last race display ──
+        $last_race = null;
+        $recent    = $this->get_member_recent_races( $cust_id );
+
+        if ( ! empty( $recent['races'] ) ) {
+            usort( $recent['races'], array( $this, 'sort_races_desc' ) );
+
+            $any_race   = $recent['races'][0];
+            $finish_raw = isset( $any_race['finish_position'] ) ? $any_race['finish_position'] : null;
+            $start_raw  = isset( $any_race['start_position'] )  ? $any_race['start_position']  : null;
+            $last_race  = array(
+                'series'    => isset( $any_race['series_name'] )         ? $any_race['series_name']         : '',
+                'track'     => isset( $any_race['track']['track_name'] ) ? $any_race['track']['track_name'] : '',
+                'finish'    => is_numeric( $finish_raw ) ? intval( $finish_raw ) : '-',
+                'start'     => is_numeric( $start_raw )  ? intval( $start_raw )  : '-',
+                'incidents' => isset( $any_race['incidents'] )           ? $any_race['incidents']           : 0,
+                'sof'       => isset( $any_race['strength_of_field'] )   ? $any_race['strength_of_field']   : 0,
+                'date'      => isset( $any_race['session_start_time'] )  ? $any_race['session_start_time']  : '',
+            );
+            unset( $any_race );
+        }
+        unset( $recent );
+
+        if ( null === $irating ) {
+            error_log( 'EDR iRacing: No Sports Car iRating chart data for ' . $name . ' (cust_id ' . $cust_id . ').' );
+        }
+
+        return array(
+            'cust_id'        => $cust_id,
+            'name'           => $name,
+            'irating'        => $irating,
+            'irating_prev'   => $irating_prev,
+            'safety_rating'  => $safety_rating,
+            'license_class'  => $license_class,
+            'wins'           => $road_stats['wins'],
+            'starts'         => $road_stats['starts'],
+            'top5'           => $road_stats['top5'],
+            'laps'           => $road_stats['laps'],
+            'last_race'      => $last_race,
+            'last_race_date' => $last_race ? $last_race['date'] : '',
+        );
     }
 
     /**

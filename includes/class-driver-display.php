@@ -152,17 +152,15 @@ class EDR_Driver_Display {
 
         $api_cache = get_transient( 'edr_iracing_drivers_cache' );
 
+        // If the cache has expired, schedule a background refresh via WP-Cron
+        // instead of fetching synchronously (which caused 504 gateway timeouts).
         if ( false === $api_cache && ! get_transient( 'edr_iracing_refresh_lock' ) ) {
-            set_transient( 'edr_iracing_refresh_lock', 1, 60 );
-            $api = new EDR_IRacing_API();
-            if ( $api->is_configured() ) {
-                $fresh = $api->get_all_driver_data();
-                if ( is_array( $fresh ) && ! empty( $fresh ) ) {
-                    $api_cache = $fresh;
-                }
+            set_transient( 'edr_iracing_refresh_lock', 1, 120 );
+            if ( ! wp_next_scheduled( 'edr_cron_sync_drivers' ) ) {
+                wp_schedule_single_event( time(), 'edr_cron_sync_drivers' );
             }
-            unset( $api );
-            delete_transient( 'edr_iracing_refresh_lock' );
+            // Trigger WP-Cron spawn so the sync starts immediately in the background.
+            spawn_cron();
         }
 
         if ( ! is_array( $api_cache ) || empty( $api_cache ) ) {

@@ -81,7 +81,7 @@ class EDR_Admin_Settings {
         ) );
 
         add_settings_section( 'edr_api_section', 'iRacing API Credentials', function () {
-            echo '<p>Enter your iRacing OAuth2 client credentials. These are <strong>optional</strong> &mdash; '
+            echo '<p>Enter your iRacing login credentials. These are <strong>optional</strong> &mdash; '
                . 'you can manage drivers manually without them. When connected, live stats override manual values.</p>';
         }, $this->page_slug );
 
@@ -196,7 +196,7 @@ class EDR_Admin_Settings {
     }
 
     public function sanitize_api( $input ) {
-        return array(
+        $sanitized = array(
             'client_id'     => sanitize_text_field( isset( $input['client_id'] )     ? $input['client_id']     : '' ),
             'client_secret' => sanitize_text_field( isset( $input['client_secret'] ) ? $input['client_secret'] : '' ),
             'username'      => sanitize_email( isset( $input['username'] )           ? $input['username']      : '' ),
@@ -204,6 +204,17 @@ class EDR_Admin_Settings {
             'team_id'       => absint( isset( $input['team_id'] )     ? $input['team_id']     : 0 ),
             'cache_hours'   => max( 1, absint( isset( $input['cache_hours'] ) ? $input['cache_hours'] : 1 ) ),
         );
+
+        // Reschedule cron whenever the sync interval changes.
+        $old = get_option( 'edr_iracing_settings', array() );
+        $old_hours = isset( $old['cache_hours'] ) ? intval( $old['cache_hours'] ) : 24;
+        if ( intval( $sanitized['cache_hours'] ) !== $old_hours ) {
+            if ( function_exists( 'edr_schedule_sync' ) ) {
+                edr_schedule_sync();
+            }
+        }
+
+        return $sanitized;
     }
 
     public function sanitize_style( $input ) {
@@ -1002,8 +1013,7 @@ class EDR_Admin_Settings {
 
     private function is_api_configured() {
         $s = get_option( $this->option_name, array() );
-        return ! empty( $s['client_id'] ) && ! empty( $s['client_secret'] )
-            && ! empty( $s['username'] )  && ! empty( $s['password'] );
+        return ! empty( $s['username'] ) && ! empty( $s['password'] );
     }
 
     private function render_admin_notice( $msg ) {
